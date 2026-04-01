@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(npm install next@latest)",
+      "mcp__Claude_Preview__preview_start",
+      "WebSearch",
+      "WebFetch(domain:developers.mercadolibre.com.ar)",
+      "WebFetch(domain:auth.mercadolibre.com.ar)",
+      "Bash(vercel --version)",
+      "Bash(git --version)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
