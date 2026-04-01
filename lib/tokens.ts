@@ -5,6 +5,7 @@ import redis from './redis'
 
 const COOKIE_NAME = 'meli_tokens'
 const REDIS_KEY = 'owner_token'
+const REDIS_USER_KEY = 'owner_user'
 
 // --- Cookie helpers (session) ---
 
@@ -70,9 +71,17 @@ export async function saveTokens(data: {
 
   // Verify the token works before persisting as owner token
   try {
-    await getUserInfo(tokenData.access_token)
+    const userInfo = await getUserInfo(tokenData.access_token)
     await saveOwnerToken(tokenData)
-    console.log('Owner token saved to Redis')
+    await redis.set(REDIS_USER_KEY, JSON.stringify({
+      id: userInfo.id,
+      nickname: userInfo.nickname,
+      first_name: userInfo.first_name,
+      last_name: userInfo.last_name,
+      email: userInfo.email,
+      saved_at: new Date().toISOString(),
+    }))
+    console.log('Owner token saved to Redis for user:', userInfo.nickname)
   } catch {
     console.log('Token validation failed, not saving as owner token')
   }
