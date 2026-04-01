@@ -1,5 +1,6 @@
 const MELI_AUTH_URL = 'https://auth.mercadolibre.com.ar/authorization'
 const MELI_API_URL = 'https://api.mercadolibre.com'
+const MP_API_URL = 'https://api.mercadopago.com'
 
 export interface TokenData {
   access_token: string
@@ -30,9 +31,63 @@ export interface MeliCollection {
   }
 }
 
-export interface CollectionsResponse {
+interface MPPaymentRaw {
+  id: number
+  status: string
+  status_detail: string
+  date_created: string
+  date_approved: string | null
+  date_last_updated: string
+  transaction_amount: number
+  transaction_details: {
+    net_received_amount: number
+    total_paid_amount: number
+  }
+  fee_details: Array<{ amount: number }>
+  currency_id: string
+  description: string
+  order?: { id: number }
+  payment_method_id: string
+  payment_type_id: string
+  installments: number
+  payer: {
+    id: number
+    email: string
+    first_name?: string
+    last_name?: string
+  }
+}
+
+interface MPPaymentsResponse {
   paging: { total: number; offset: number; limit: number }
-  results: Array<{ collection: MeliCollection }>
+  results: MPPaymentRaw[]
+}
+
+export function mpPaymentToCollection(p: MPPaymentRaw): MeliCollection {
+  const fee = p.fee_details.reduce((sum, f) => sum + f.amount, 0)
+  return {
+    id: p.id,
+    status: p.status as MeliCollection['status'],
+    status_detail: p.status_detail,
+    date_created: p.date_created,
+    date_approved: p.date_approved,
+    last_modified: p.date_last_updated,
+    total_paid_amount: p.transaction_amount,
+    net_received_amount: p.transaction_details?.net_received_amount ?? p.transaction_amount - fee,
+    marketplace_fee: fee,
+    currency_id: p.currency_id,
+    reason: p.description,
+    order_id: p.order?.id ?? 0,
+    payment_method_id: p.payment_method_id,
+    payment_type: p.payment_type_id,
+    installments: p.installments,
+    buyer: {
+      id: p.payer.id,
+      nickname: p.payer.first_name
+        ? `${p.payer.first_name} ${p.payer.last_name ?? ''}`.trim()
+        : p.payer.email,
+    },
+  }
 }
 
 export function buildAuthUrl(): string {
@@ -95,56 +150,54 @@ export async function getUserInfo(accessToken: string) {
 
 function getTodayRangeAR() {
   const now = new Date()
-  const formatter = new Intl.DateTimeFormat('en-CA', {
+  const todayAR = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Argentina/Buenos_Aires',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  })
-  const todayAR = formatter.format(now) // "YYYY-MM-DD"
+  }).format(now)
   return {
     from: `${todayAR}T00:00:00.000-03:00`,
     to: `${todayAR}T23:59:59.999-03:00`,
   }
 }
 
-export async function getTodayCollections(
+async function getTodayPayments(
   accessToken: string,
   offset = 0,
   limit = 50
-): Promise<CollectionsResponse> {
+): Promise<MPPaymentsResponse> {
   const { from, to } = getTodayRangeAR()
   const params = new URLSearchParams({
-    'date_created.from': from,
-    'date_created.to': to,
+    begin_date: from,
+    end_date: to,
     limit: String(limit),
     offset: String(offset),
     sort: 'date_created',
     criteria: 'desc',
   })
-  const res = await fetch(`${MELI_API_URL}/collections/search?${params}`, {
+  const res = await fetch(`${MP_API_URL}/v1/payments/search?${params}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     next: { revalidate: 0 },
   })
-  if (!res.ok) throw new Error(`Collections fetch failed: ${res.status}`)
+  if (!res.ok) throw new Error(`Payments fetch failed: ${res.status}`)
   return res.json()
 }
 
 export async function getAllTodayCollections(accessToken: string): Promise<MeliCollection[]> {
-  const first = await getTodayCollections(accessToken, 0, 50)
+  const first = await getTodayPayments(accessToken, 0, 50)
   const total = first.paging.total
-  const collections = first.results.map((r) => r.collection)
+  const payments = first.results.map(mpPaymentToCollection)
 
-  if (total <= 50) return collections
+  if (total <= 50) return payments
 
-  // Fetch remaining pages in parallel
   const pages = Math.ceil((total - 50) / 50)
   const promises = Array.from({ length: pages }, (_, i) =>
-    getTodayCollections(accessToken, (i + 1) * 50, 50)
+    getTodayPayments(accessToken, (i + 1) * 50, 50)
   )
   const results = await Promise.all(promises)
   for (const page of results) {
-    collections.push(...page.results.map((r) => r.collection))
+    payments.push(...page.results.map(mpPaymentToCollection))
   }
-  return collections
+  return payments
 }
