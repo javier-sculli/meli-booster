@@ -1,10 +1,14 @@
 import { cookies } from 'next/headers'
 import type { TokenData } from './meli'
-import { refreshAccessToken } from './meli'
+import { refreshAccessToken, getUserInfo } from './meli'
+import redis from './redis'
 
 const COOKIE_NAME = 'meli_tokens'
+const REDIS_KEY = 'owner_token'
 
-export async function saveTokens(data: {
+// --- Cookie helpers (session) ---
+
+export async function saveTokensToCookie(data: {
   access_token: string
   refresh_token: string
   user_id: number
@@ -27,7 +31,7 @@ export async function saveTokens(data: {
   return tokenData
 }
 
-export async function getTokens(): Promise<TokenData | null> {
+export async function getTokensFromCookie(): Promise<TokenData | null> {
   try {
     const cookieStore = await cookies()
     const raw = cookieStore.get(COOKIE_NAME)?.value
@@ -38,6 +42,51 @@ export async function getTokens(): Promise<TokenData | null> {
   }
 }
 
+// --- Redis helpers (owner token) ---
+
+export async function saveOwnerToken(data: TokenData): Promise<void> {
+  await redis.set(REDIS_KEY, JSON.stringify(data))
+}
+
+export async function getOwnerToken(): Promise<TokenData | null> {
+  try {
+    const raw = await redis.get(REDIS_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as TokenData
+  } catch {
+    return null
+  }
+}
+
+// --- Main API ---
+
+export async function saveTokens(data: {
+  access_token: string
+  refresh_token: string
+  user_id: number
+  expires_in: number
+}): Promise<TokenData> {
+  const tokenData = await saveTokensToCookie(data)
+
+  // Verify the token works before persisting as owner token
+  try {
+    await getUserInfo(tokenData.access_token)
+    await saveOwnerToken(tokenData)
+    console.log('Owner token saved to Redis')
+  } catch {
+    console.log('Token validation failed, not saving as owner token')
+  }
+
+  return tokenData
+}
+
+export async function getTokens(): Promise<TokenData | null> {
+  // Try cookie first, fall back to owner token in Redis
+  const fromCookie = await getTokensFromCookie()
+  if (fromCookie) return fromCookie
+  return getOwnerToken()
+}
+
 export async function getValidAccessToken(): Promise<string | null> {
   const tokenData = await getTokens()
   if (!tokenData) return null
@@ -45,12 +94,18 @@ export async function getValidAccessToken(): Promise<string | null> {
   if (tokenData.expires_at - Date.now() < 5 * 60 * 1000) {
     try {
       const refreshed = await refreshAccessToken(tokenData.refresh_token)
-      await saveTokens({
+      const newData: TokenData = {
         access_token: refreshed.access_token,
         refresh_token: refreshed.refresh_token,
         user_id: refreshed.user_id,
-        expires_in: refreshed.expires_in,
-      })
+        expires_at: Date.now() + refreshed.expires_in * 1000,
+      }
+      // Update Redis owner token if this was the owner token
+      const owner = await getOwnerToken()
+      if (owner?.user_id === newData.user_id) {
+        await saveOwnerToken(newData)
+      }
+      await saveTokensToCookie({ ...refreshed })
       return refreshed.access_token
     } catch {
       return null
