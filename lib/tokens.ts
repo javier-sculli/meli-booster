@@ -81,10 +81,11 @@ export async function saveTokens(data: {
 }
 
 export async function getTokens(): Promise<TokenData | null> {
-  // Try cookie first, fall back to owner token in Redis
-  const fromCookie = await getTokensFromCookie()
-  if (fromCookie) return fromCookie
-  return getOwnerToken()
+  // Always use owner token from Redis if available
+  const owner = await getOwnerToken()
+  if (owner) return owner
+  // Fall back to cookie (e.g. first login before owner token is set)
+  return getTokensFromCookie()
 }
 
 export async function getValidAccessToken(): Promise<string | null> {
