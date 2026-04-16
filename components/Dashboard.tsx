@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import SummaryCards from './SummaryCards'
 import PaymentsTable from './PaymentsTable'
+import ListingsTable from './ListingsTable'
 import type { MeliCollection } from '@/lib/meli'
 
 interface PaymentWithCumulative extends MeliCollection {
@@ -30,6 +31,29 @@ interface PaymentsData {
   fetched_at: string
 }
 
+interface Item {
+  id: string
+  title: string
+  price: number
+  available_quantity: number
+  sold_quantity: number
+  status: string
+  thumbnail: string
+  permalink: string
+  health: number | null
+  condition: string
+  listing_type_id: string
+}
+
+interface ItemsData {
+  items: Item[]
+  total: number
+  user: { id: number; nickname: string; first_name: string }
+  fetched_at: string
+}
+
+type Tab = 'pagos' | 'publicaciones'
+
 const REFRESH_INTERVAL_MS = 30_000
 
 function fmtTime(iso: string) {
@@ -53,11 +77,15 @@ function fmtDate() {
 }
 
 export default function Dashboard() {
+  const [tab, setTab] = useState<Tab>('pagos')
   const [data, setData] = useState<PaymentsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL_MS / 1000)
+  const [itemsData, setItemsData] = useState<ItemsData | null>(null)
+  const [itemsLoading, setItemsLoading] = useState(false)
+  const [itemsError, setItemsError] = useState<string | null>(null)
 
   const fetchPayments = useCallback(async (isManual = false) => {
     if (isManual) setRefreshing(true)
@@ -81,10 +109,30 @@ export default function Dashboard() {
     }
   }, [])
 
+  const fetchItems = useCallback(async () => {
+    setItemsLoading(true)
+    setItemsError(null)
+    try {
+      const res = await fetch('/api/items', { cache: 'no-store' })
+      if (!res.ok) throw new Error('Error al obtener las publicaciones')
+      setItemsData(await res.json())
+    } catch (err) {
+      setItemsError(err instanceof Error ? err.message : 'Error desconocido')
+    } finally {
+      setItemsLoading(false)
+    }
+  }, [])
+
   // Initial load
   useEffect(() => {
     fetchPayments()
   }, [fetchPayments])
+
+  useEffect(() => {
+    if (tab === 'publicaciones' && !itemsData && !itemsLoading) {
+      fetchItems()
+    }
+  }, [tab, itemsData, itemsLoading, fetchItems])
 
   // Auto-refresh timer
   useEffect(() => {
@@ -153,60 +201,94 @@ export default function Dashboard() {
 
       {/* Main content */}
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-        {/* Date */}
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white capitalize">
-            {fmtDate()}
-          </h2>
-          {data && (
-            <span className="text-sm text-gray-500">
-              {data.summary.count_all} transacciones
-            </span>
-          )}
+
+        {/* Tabs */}
+        <div className="flex gap-1 border-b border-gray-800">
+          {(['pagos', 'publicaciones'] as Tab[]).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${
+                tab === t
+                  ? 'border-yellow-400 text-yellow-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {t === 'pagos' ? `Pagos del día` : `Publicaciones${itemsData ? ` (${itemsData.total})` : ''}`}
+            </button>
+          ))}
         </div>
 
-        {/* Error */}
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400 flex items-center gap-2">
-            <span>⚠</span>
-            <span>{error}</span>
-            <button
-              onClick={() => fetchPayments(true)}
-              className="ml-auto text-xs underline hover:no-underline"
-            >
-              Reintentar
-            </button>
-          </div>
-        )}
-
-        {/* Loading skeleton */}
-        {loading && !data && (
+        {/* PAGOS TAB */}
+        {tab === 'pagos' && (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl h-24" />
-              ))}
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white capitalize">{fmtDate()}</h2>
+              {data && <span className="text-sm text-gray-500">{data.summary.count_all} transacciones</span>}
             </div>
-            <div className="bg-gray-900 border border-gray-800 rounded-xl h-64 animate-pulse" />
+
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400 flex items-center gap-2">
+                <span>⚠</span>
+                <span>{error}</span>
+                <button onClick={() => fetchPayments(true)} className="ml-auto text-xs underline hover:no-underline">Reintentar</button>
+              </div>
+            )}
+
+            {loading && !data && (
+              <>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl h-24" />
+                  ))}
+                </div>
+                <div className="bg-gray-900 border border-gray-800 rounded-xl h-64 animate-pulse" />
+              </>
+            )}
+
+            {data && (
+              <>
+                <SummaryCards summary={data.summary} />
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-300">Transacciones</h3>
+                    <span className="text-xs text-gray-500">Columna "Acumulado" muestra el cash flow corrido del día</span>
+                  </div>
+                  <PaymentsTable payments={data.payments} />
+                </div>
+              </>
+            )}
           </>
         )}
 
-        {/* Content */}
-        {data && (
+        {/* PUBLICACIONES TAB */}
+        {tab === 'publicaciones' && (
           <>
-            <SummaryCards summary={data.summary} />
-
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-300">
-                  Transacciones
-                </h3>
-                <span className="text-xs text-gray-500">
-                  Columna "Acumulado" muestra el cash flow corrido del día
-                </span>
-              </div>
-              <PaymentsTable payments={data.payments} />
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">Publicaciones</h2>
+              <button
+                onClick={fetchItems}
+                disabled={itemsLoading}
+                className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors text-gray-300"
+              >
+                <span className={itemsLoading ? 'animate-spin inline-block' : ''}>↻</span>
+                {itemsLoading ? 'Cargando...' : 'Actualizar'}
+              </button>
             </div>
+
+            {itemsError && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400 flex items-center gap-2">
+                <span>⚠</span>
+                <span>{itemsError}</span>
+                <button onClick={fetchItems} className="ml-auto text-xs underline hover:no-underline">Reintentar</button>
+              </div>
+            )}
+
+            {itemsLoading && !itemsData && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl h-64 animate-pulse" />
+            )}
+
+            {itemsData && <ListingsTable items={itemsData.items} />}
           </>
         )}
       </main>
