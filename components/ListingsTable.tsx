@@ -1,5 +1,7 @@
 'use client'
 
+import { useState } from 'react'
+
 interface Item {
   id: string
   title: string
@@ -62,7 +64,13 @@ function HealthBar({ value }: { value: number | null }) {
   )
 }
 
+const STATUS_OPTIONS = ['todos', 'active', 'paused', 'closed', 'under_review', 'inactive']
+
 export default function ListingsTable({ items }: { items: Item[] }) {
+  const [filter, setFilter] = useState('todos')
+
+  const filtered = filter === 'todos' ? items : items.filter((i) => i.status === filter)
+
   if (items.length === 0) {
     return (
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center">
@@ -72,7 +80,31 @@ export default function ListingsTable({ items }: { items: Item[] }) {
     )
   }
 
+  const counts = STATUS_OPTIONS.reduce((acc, s) => {
+    acc[s] = s === 'todos' ? items.length : items.filter((i) => i.status === s).length
+    return acc
+  }, {} as Record<string, number>)
+
   return (
+    <div className="space-y-4">
+      {/* Filtros */}
+      <div className="flex flex-wrap gap-2">
+        {STATUS_OPTIONS.filter((s) => s === 'todos' || counts[s] > 0).map((s) => (
+          <button
+            key={s}
+            onClick={() => setFilter(s)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+              filter === s
+                ? 'bg-yellow-400/10 border-yellow-400/40 text-yellow-400'
+                : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            {s === 'todos' ? 'Todos' : STATUS_LABELS[s] ?? s}
+            <span className="ml-1.5 text-gray-500">{counts[s]}</span>
+          </button>
+        ))}
+      </div>
+
     <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -102,7 +134,7 @@ export default function ListingsTable({ items }: { items: Item[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {items.map((item) => (
+            {filtered.map((item) => (
               <tr key={item.id} className="hover:bg-gray-800/50 transition-colors">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
@@ -149,6 +181,7 @@ export default function ListingsTable({ items }: { items: Item[] }) {
           </tbody>
         </table>
       </div>
+    </div>
     </div>
   )
 }
