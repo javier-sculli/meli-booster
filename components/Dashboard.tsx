@@ -43,6 +43,13 @@ interface Item {
   health: number | null
   condition: string
   listing_type_id: string
+  category_name?: string
+  group_key?: string
+  variant_label?: string
+  sale_conditions?: string
+  sku?: string
+  brand?: string
+  units_per_pack?: string
 }
 
 interface ItemsData {
