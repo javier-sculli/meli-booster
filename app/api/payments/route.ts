@@ -1,17 +1,22 @@
-import { NextResponse } from 'next/server'
-import { getAllTodayCollections, getUserInfo } from '@/lib/meli'
+import { NextRequest, NextResponse } from 'next/server'
+import { getAllCollections, getTodayAR, getUserInfo } from '@/lib/meli'
 import { getValidAccessToken, getTokens } from '@/lib/tokens'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const accessToken = await getValidAccessToken()
   if (!accessToken) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { searchParams } = request.nextUrl
+  const today = getTodayAR()
+  const fromDate = searchParams.get('from') ?? today
+  const toDate = searchParams.get('to') ?? today
+
   try {
     const tokenData = await getTokens()
     const [collections, userInfo] = await Promise.all([
-      getAllTodayCollections(accessToken),
+      getAllCollections(accessToken, fromDate, toDate),
       getUserInfo(accessToken),
     ])
 

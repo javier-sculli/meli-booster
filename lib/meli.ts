@@ -148,26 +148,30 @@ export async function getUserInfo(accessToken: string) {
   return res.json()
 }
 
-function getTodayRangeAR() {
-  const now = new Date()
-  const todayAR = new Intl.DateTimeFormat('en-CA', {
+export function getTodayAR(): string {
+  return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Argentina/Buenos_Aires',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(now)
+  }).format(new Date())
+}
+
+function buildDateRange(fromDate: string, toDate: string) {
   return {
-    from: `${todayAR}T00:00:00.000-03:00`,
-    to: `${todayAR}T23:59:59.999-03:00`,
+    from: `${fromDate}T00:00:00.000-03:00`,
+    to: `${toDate}T23:59:59.999-03:00`,
   }
 }
 
-async function getTodayPayments(
+async function fetchPaymentsPage(
   accessToken: string,
+  fromDate: string,
+  toDate: string,
   offset = 0,
   limit = 50
 ): Promise<MPPaymentsResponse> {
-  const { from, to } = getTodayRangeAR()
+  const { from, to } = buildDateRange(fromDate, toDate)
   const params = new URLSearchParams({
     begin_date: from,
     end_date: to,
@@ -184,8 +188,12 @@ async function getTodayPayments(
   return res.json()
 }
 
-export async function getAllTodayCollections(accessToken: string): Promise<MeliCollection[]> {
-  const first = await getTodayPayments(accessToken, 0, 50)
+export async function getAllCollections(
+  accessToken: string,
+  fromDate: string,
+  toDate: string
+): Promise<MeliCollection[]> {
+  const first = await fetchPaymentsPage(accessToken, fromDate, toDate, 0, 50)
   const total = first.paging.total
   const payments = first.results.map(mpPaymentToCollection)
 
@@ -193,7 +201,7 @@ export async function getAllTodayCollections(accessToken: string): Promise<MeliC
 
   const pages = Math.ceil((total - 50) / 50)
   const promises = Array.from({ length: pages }, (_, i) =>
-    getTodayPayments(accessToken, (i + 1) * 50, 50)
+    fetchPaymentsPage(accessToken, fromDate, toDate, (i + 1) * 50, 50)
   )
   const results = await Promise.all(promises)
   for (const page of results) {

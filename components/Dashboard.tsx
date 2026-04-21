@@ -73,15 +73,35 @@ function fmtTime(iso: string) {
   }).format(new Date(iso))
 }
 
-function fmtDate() {
+function fmtDate(dateStr?: string) {
+  const d = dateStr ? new Date(dateStr + 'T12:00:00-03:00') : new Date()
   return new Intl.DateTimeFormat('es-AR', {
     timeZone: 'America/Argentina/Buenos_Aires',
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
-  }).format(new Date())
+  }).format(d)
 }
+
+function getARDate(daysAgo = 0): string {
+  const d = new Date()
+  d.setDate(d.getDate() - daysAgo)
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d)
+}
+
+type QuickFilter = 'hoy' | '3d' | '7d' | 'custom'
+
+const QUICK_FILTERS: { key: QuickFilter; label: string; days: number }[] = [
+  { key: 'hoy', label: 'Hoy', days: 0 },
+  { key: '3d', label: 'Últimos 3 días', days: 2 },
+  { key: '7d', label: 'Última semana', days: 6 },
+]
 
 export default function Dashboard() {
   const [tab, setTab] = useState<Tab>('pagos')
@@ -93,13 +113,19 @@ export default function Dashboard() {
   const [itemsData, setItemsData] = useState<ItemsData | null>(null)
   const [itemsLoading, setItemsLoading] = useState(false)
   const [itemsError, setItemsError] = useState<string | null>(null)
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('hoy')
+  const [dateFrom, setDateFrom] = useState(getARDate(0))
+  const [dateTo, setDateTo] = useState(getARDate(0))
 
-  const fetchPayments = useCallback(async (isManual = false) => {
+  const fetchPayments = useCallback(async (isManual = false, from?: string, to?: string) => {
     if (isManual) setRefreshing(true)
     setError(null)
 
+    const f = from ?? dateFrom
+    const t = to ?? dateTo
+
     try {
-      const res = await fetch('/api/payments', { cache: 'no-store' })
+      const res = await fetch(`/api/payments?from=${f}&to=${t}`, { cache: 'no-store' })
       if (res.status === 401) {
         window.location.href = '/'
         return
@@ -114,7 +140,18 @@ export default function Dashboard() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
+
+  const applyQuickFilter = useCallback((filter: QuickFilter) => {
+    setQuickFilter(filter)
+    if (filter === 'custom') return
+    const days = QUICK_FILTERS.find((f) => f.key === filter)!.days
+    const from = getARDate(days)
+    const to = getARDate(0)
+    setDateFrom(from)
+    setDateTo(to)
+    fetchPayments(false, from, to)
+  }, [fetchPayments])
 
   const fetchItems = useCallback(async () => {
     setItemsLoading(true)
@@ -141,11 +178,12 @@ export default function Dashboard() {
     }
   }, [tab, itemsData, itemsLoading, fetchItems])
 
-  // Auto-refresh timer
+  // Auto-refresh timer (only when viewing today)
   useEffect(() => {
+    if (quickFilter !== 'hoy') return
     const interval = setInterval(() => fetchPayments(), REFRESH_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [fetchPayments])
+  }, [fetchPayments, quickFilter])
 
   // Countdown display
   useEffect(() => {
@@ -229,8 +267,61 @@ export default function Dashboard() {
         {/* PAGOS TAB */}
         {tab === 'pagos' && (
           <>
+            {/* Filtros de fecha */}
+            <div className="flex flex-wrap items-center gap-2">
+              {QUICK_FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  onClick={() => applyQuickFilter(f.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+                    quickFilter === f.key
+                      ? 'bg-yellow-400/10 border-yellow-400/40 text-yellow-400'
+                      : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+              <div className="flex items-center gap-1.5 ml-1">
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => {
+                    setDateFrom(e.target.value)
+                    setQuickFilter('custom')
+                  }}
+                  className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-yellow-400/50"
+                />
+                <span className="text-gray-600 text-xs">→</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => {
+                    setDateTo(e.target.value)
+                    setQuickFilter('custom')
+                  }}
+                  className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-yellow-400/50"
+                />
+                {quickFilter === 'custom' && (
+                  <button
+                    onClick={() => fetchPayments(true, dateFrom, dateTo)}
+                    disabled={refreshing}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-yellow-400/10 border border-yellow-400/40 text-yellow-400 hover:bg-yellow-400/20 transition-colors disabled:opacity-50"
+                  >
+                    Buscar
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white capitalize">{fmtDate()}</h2>
+              <h2 className="text-lg font-semibold text-white capitalize">
+                {quickFilter === 'hoy'
+                  ? fmtDate()
+                  : quickFilter === 'custom'
+                  ? `${dateFrom} → ${dateTo}`
+                  : `${fmtDate(dateFrom)} → ${fmtDate(dateTo)}`}
+              </h2>
               {data && <span className="text-sm text-gray-500">{data.summary.count_all} transacciones</span>}
             </div>
 
