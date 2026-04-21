@@ -3,7 +3,7 @@ import { getValidAccessToken, getTokens } from '@/lib/tokens'
 import { getUserInfo } from '@/lib/meli'
 
 const MELI_API_URL = 'https://api.mercadolibre.com'
-const ITEM_ATTRIBUTES = 'id,title,price,available_quantity,sold_quantity,status,thumbnail,permalink,health,condition,listing_type_id,category_id,shipping,seller_custom_field,attributes'
+const ITEM_ATTRIBUTES = 'id,title,price,available_quantity,sold_quantity,status,thumbnail,permalink,health,condition,listing_type_id,category_id,shipping,seller_custom_field,attributes,sale_terms,tags'
 
 const STOP_WORDS = new Set([
   // talles
@@ -137,6 +137,8 @@ export async function GET() {
       const groupKey = sku ? `sku:${sku}` : normalizeTitle(title)
       const variantLabel = extractVariantLabel(title)
 
+      const tags = i.tags as string[] | undefined ?? []
+
       const conditions: string[] = []
       if (shipping?.free_shipping) conditions.push('Envío gratis')
       else conditions.push('Envío pago')
@@ -145,6 +147,8 @@ export async function GET() {
       return {
         ...i,
         attributes: undefined,
+        tags: undefined,
+        sale_terms: undefined,
         category_name: categoryNames[i.category_id as string] ?? i.category_id,
         group_key: groupKey,
         variant_label: variantLabel,

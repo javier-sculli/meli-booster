@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import SummaryCards from './SummaryCards'
 import PaymentsTable from './PaymentsTable'
 import ListingsTable from './ListingsTable'
+import ReleasesView from './ReleasesView'
 import type { MeliCollection } from '@/lib/meli'
 
 interface PaymentWithCumulative extends MeliCollection {
@@ -59,7 +60,7 @@ interface ItemsData {
   fetched_at: string
 }
 
-type Tab = 'pagos' | 'publicaciones'
+type Tab = 'pagos' | 'publicaciones' | 'acreditaciones'
 
 const REFRESH_INTERVAL_MS = 30_000
 
@@ -113,6 +114,9 @@ export default function Dashboard() {
   const [itemsData, setItemsData] = useState<ItemsData | null>(null)
   const [itemsLoading, setItemsLoading] = useState(false)
   const [itemsError, setItemsError] = useState<string | null>(null)
+  const [releasesData, setReleasesData] = useState<unknown>(null)
+  const [releasesLoading, setReleasesLoading] = useState(false)
+  const [releasesError, setReleasesError] = useState<string | null>(null)
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('hoy')
   const [dateFrom, setDateFrom] = useState(getARDate(0))
   const [dateTo, setDateTo] = useState(getARDate(0))
@@ -167,10 +171,30 @@ export default function Dashboard() {
     }
   }, [])
 
+  const fetchReleases = useCallback(async () => {
+    setReleasesLoading(true)
+    setReleasesError(null)
+    try {
+      const res = await fetch('/api/releases', { cache: 'no-store' })
+      if (!res.ok) throw new Error('Error al obtener las acreditaciones')
+      setReleasesData(await res.json())
+    } catch (err) {
+      setReleasesError(err instanceof Error ? err.message : 'Error desconocido')
+    } finally {
+      setReleasesLoading(false)
+    }
+  }, [])
+
   // Initial load
   useEffect(() => {
     fetchPayments()
   }, [fetchPayments])
+
+  useEffect(() => {
+    if (tab === 'acreditaciones' && !releasesData && !releasesLoading) {
+      fetchReleases()
+    }
+  }, [tab, releasesData, releasesLoading, fetchReleases])
 
   useEffect(() => {
     if (tab === 'publicaciones' && !itemsData && !itemsLoading) {
@@ -249,7 +273,7 @@ export default function Dashboard() {
 
         {/* Tabs */}
         <div className="flex gap-1 border-b border-gray-800">
-          {(['pagos', 'publicaciones'] as Tab[]).map((t) => (
+          {(['pagos', 'publicaciones', 'acreditaciones'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -259,10 +283,47 @@ export default function Dashboard() {
                   : 'border-transparent text-gray-500 hover:text-gray-300'
               }`}
             >
-              {t === 'pagos' ? `Pagos del día` : `Publicaciones${itemsData ? ` (${itemsData.total})` : ''}`}
+              {t === 'pagos' ? `Pagos del día` : t === 'publicaciones' ? `Publicaciones${itemsData ? ` (${itemsData.total})` : ''}` : `Acreditaciones`}
             </button>
           ))}
         </div>
+
+        {/* ACREDITACIONES TAB */}
+        {tab === 'acreditaciones' && (
+          <>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">Próximas acreditaciones</h2>
+              <button
+                onClick={fetchReleases}
+                disabled={releasesLoading}
+                className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors text-gray-300"
+              >
+                <span className={releasesLoading ? 'animate-spin inline-block' : ''}>↻</span>
+                {releasesLoading ? 'Cargando...' : 'Actualizar'}
+              </button>
+            </div>
+
+            {releasesError && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400 flex items-center gap-2">
+                <span>⚠</span><span>{releasesError}</span>
+                <button onClick={fetchReleases} className="ml-auto text-xs underline">Reintentar</button>
+              </div>
+            )}
+
+            {releasesLoading && !releasesData && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 animate-pulse">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl h-20" />
+                  ))}
+                </div>
+                <div className="bg-gray-900 border border-gray-800 rounded-xl h-48 animate-pulse" />
+              </div>
+            )}
+
+            {releasesData && <ReleasesView data={releasesData as Parameters<typeof ReleasesView>[0]['data']} />}
+          </>
+        )}
 
         {/* PAGOS TAB */}
         {tab === 'pagos' && (
