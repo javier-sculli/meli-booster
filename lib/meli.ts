@@ -64,28 +64,28 @@ interface MPPaymentsResponse {
 }
 
 export function mpPaymentToCollection(p: MPPaymentRaw): MeliCollection {
-  const fee = p.fee_details.reduce((sum, f) => sum + f.amount, 0)
+  const fee = (p.fee_details ?? []).reduce((sum, f) => sum + (f?.amount ?? 0), 0)
   return {
     id: p.id,
     status: p.status as MeliCollection['status'],
-    status_detail: p.status_detail,
+    status_detail: p.status_detail ?? '',
     date_created: p.date_created,
     date_approved: p.date_approved,
     last_modified: p.date_last_updated,
-    total_paid_amount: p.transaction_amount,
-    net_received_amount: p.transaction_details?.net_received_amount ?? p.transaction_amount - fee,
+    total_paid_amount: p.transaction_amount ?? 0,
+    net_received_amount: p.transaction_details?.net_received_amount ?? (p.transaction_amount ?? 0) - fee,
     marketplace_fee: fee,
-    currency_id: p.currency_id,
-    reason: p.description,
+    currency_id: p.currency_id ?? 'ARS',
+    reason: p.description ?? '',
     order_id: p.order?.id ?? 0,
-    payment_method_id: p.payment_method_id,
-    payment_type: p.payment_type_id,
-    installments: p.installments,
+    payment_method_id: p.payment_method_id ?? '',
+    payment_type: p.payment_type_id ?? '',
+    installments: p.installments ?? 1,
     buyer: {
-      id: p.payer.id,
-      nickname: p.payer.first_name
+      id: p.payer?.id ?? 0,
+      nickname: p.payer?.first_name
         ? `${p.payer.first_name} ${p.payer.last_name ?? ''}`.trim()
-        : p.payer.email,
+        : (p.payer?.email ?? ''),
     },
   }
 }

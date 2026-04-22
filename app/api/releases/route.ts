@@ -52,14 +52,14 @@ export async function GET() {
 
   const first = await fetchPage(accessToken, 0, beginStr)
   const total = first.paging.total
-  let all = [...first.results]
+  let all = first.results.filter(Boolean)
 
   if (total > 50) {
     const pages = Math.ceil((total - 50) / 50)
     const rest = await Promise.all(
       Array.from({ length: pages }, (_, i) => fetchPage(accessToken, (i + 1) * 50, beginStr))
     )
-    for (const page of rest) all.push(...page.results)
+    for (const page of rest) all.push(...page.results.filter(Boolean))
   }
 
   const nowStr = new Date().toISOString()
@@ -84,7 +84,7 @@ export async function GET() {
 
     if (!byDate.has(dateStr)) byDate.set(dateStr, { net: 0, gross: 0, count: 0, payments: [] })
     const entry = byDate.get(dateStr)!
-    const fee = p.fee_details.reduce((s, f) => s + f.amount, 0)
+    const fee = (p.fee_details ?? []).reduce((s, f) => s + (f?.amount ?? 0), 0)
     const net = p.transaction_details?.net_received_amount ?? (p.transaction_amount - fee)
     entry.net += net
     entry.gross += p.transaction_amount
@@ -103,7 +103,7 @@ export async function GET() {
         id: p.id,
         date_approved: p.date_approved,
         money_release_date: p.money_release_date,
-        net: p.transaction_details?.net_received_amount ?? (p.transaction_amount - p.fee_details.reduce((s, f) => s + f.amount, 0)),
+        net: p.transaction_details?.net_received_amount ?? (p.transaction_amount - (p.fee_details ?? []).reduce((s, f) => s + (f?.amount ?? 0), 0)),
         gross: p.transaction_amount,
         description: p.description,
         payment_method_id: p.payment_method_id,
