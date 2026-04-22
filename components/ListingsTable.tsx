@@ -21,6 +21,7 @@ interface Item {
   sku?: string
   brand?: string
   units_per_pack?: string
+  financing?: string
 }
 
 interface Group {
@@ -222,11 +223,26 @@ function GroupRow({ group }: { group: Group }) {
           {group.totalSold}
         </td>
         <td className="px-4 py-3 hidden md:table-cell">
-          {!isVariant && group.items[0]?.sale_conditions ? (
-            <SaleConditionsBadges conditions={group.items[0].sale_conditions} />
-          ) : isVariant ? (
-            <span className="text-xs text-gray-600">—</span>
-          ) : null}
+          <div className="flex flex-col gap-1">
+            {!isVariant && group.items[0]?.sale_conditions && (
+              <SaleConditionsBadges conditions={group.items[0].sale_conditions} />
+            )}
+            {(() => {
+              const financings = [...new Set(group.items.map((i) => i.financing).filter(Boolean))]
+              if (financings.length === 0) return null
+              const label = financings.length === 1 ? financings[0]! : 'Mixto'
+              const isMixed = financings.length > 1
+              return (
+                <span className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-xs font-mono font-medium border ${
+                  isMixed
+                    ? 'bg-orange-500/10 text-orange-400 border-orange-500/20'
+                    : 'bg-purple-500/10 text-purple-400 border-purple-500/20'
+                }`}>
+                  {label}
+                </span>
+              )
+            })()}
+          </div>
         </td>
         <td className="px-4 py-3 text-center">
           <span className={`inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium ${STATUS_STYLES[hasActive ? 'active' : statuses[0]] ?? STATUS_STYLES.inactive}`}>
@@ -276,7 +292,14 @@ function GroupRow({ group }: { group: Group }) {
             {item.sold_quantity}
           </td>
           <td className="px-4 py-2 hidden md:table-cell">
-            {item.sale_conditions && <SaleConditionsBadges conditions={item.sale_conditions} />}
+            <div className="flex flex-col gap-1">
+              {item.sale_conditions && <SaleConditionsBadges conditions={item.sale_conditions} />}
+              {item.financing && (
+                <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-xs font-mono font-medium border bg-purple-500/10 text-purple-400 border-purple-500/20">
+                  {item.financing}
+                </span>
+              )}
+            </div>
           </td>
           <td className="px-4 py-2 text-center">
             <span className={`inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium ${STATUS_STYLES[item.status] ?? STATUS_STYLES.inactive}`}>

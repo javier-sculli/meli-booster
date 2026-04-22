@@ -51,6 +51,7 @@ interface Item {
   sku?: string
   brand?: string
   units_per_pack?: string
+  financing?: string
 }
 
 interface ItemsData {

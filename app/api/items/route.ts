@@ -144,6 +144,10 @@ export async function GET() {
       else conditions.push('Envío pago')
       if (shipping?.local_pick_up) conditions.push('Retiro en local')
 
+      const saleTerms = i.sale_terms as Array<{ id: string; value_name?: string }> | undefined ?? []
+      const installmentsCampaign = saleTerms.find((t) => t.id === 'INSTALLMENTS_CAMPAIGN')?.value_name
+      const financing = installmentsCampaign ?? (tags.includes('pcj-co-funded') ? 'pcj-co-funded' : null)
+
       return {
         ...i,
         attributes: undefined,
@@ -153,6 +157,7 @@ export async function GET() {
         group_key: groupKey,
         variant_label: variantLabel,
         sale_conditions: conditions.join(' · '),
+        financing: financing ?? undefined,
         sku: sku ?? undefined,
         brand: brand ?? undefined,
         units_per_pack: unitsPack ?? undefined,
