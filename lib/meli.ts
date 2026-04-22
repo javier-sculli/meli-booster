@@ -195,7 +195,7 @@ export async function getAllCollections(
 ): Promise<MeliCollection[]> {
   const first = await fetchPaymentsPage(accessToken, fromDate, toDate, 0, 50)
   const total = first.paging.total
-  const payments = first.results.map(mpPaymentToCollection)
+  const payments = first.results.filter(Boolean).map(mpPaymentToCollection)
 
   if (total <= 50) return payments
 
@@ -205,7 +205,7 @@ export async function getAllCollections(
   )
   const results = await Promise.all(promises)
   for (const page of results) {
-    payments.push(...page.results.map(mpPaymentToCollection))
+    payments.push(...page.results.filter(Boolean).map(mpPaymentToCollection))
   }
   return payments
 }
