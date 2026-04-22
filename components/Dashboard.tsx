@@ -5,6 +5,7 @@ import SummaryCards from './SummaryCards'
 import PaymentsTable from './PaymentsTable'
 import ListingsTable from './ListingsTable'
 import ReleasesView from './ReleasesView'
+import CashflowView from './CashflowView'
 import type { MeliCollection } from '@/lib/meli'
 
 interface PaymentWithCumulative extends MeliCollection {
@@ -61,7 +62,7 @@ interface ItemsData {
   fetched_at: string
 }
 
-type Tab = 'pagos' | 'publicaciones' | 'acreditaciones'
+type Tab = 'pagos' | 'publicaciones' | 'acreditaciones' | 'cashflow'
 
 const REFRESH_INTERVAL_MS = 30_000
 
@@ -118,6 +119,9 @@ export default function Dashboard() {
   const [releasesData, setReleasesData] = useState<unknown>(null)
   const [releasesLoading, setReleasesLoading] = useState(false)
   const [releasesError, setReleasesError] = useState<string | null>(null)
+  const [cashflowData, setCashflowData] = useState<unknown>(null)
+  const [cashflowLoading, setCashflowLoading] = useState(false)
+  const [cashflowError, setCashflowError] = useState<string | null>(null)
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('hoy')
   const [dateFrom, setDateFrom] = useState(getARDate(0))
   const [dateTo, setDateTo] = useState(getARDate(0))
@@ -186,6 +190,20 @@ export default function Dashboard() {
     }
   }, [])
 
+  const fetchCashflow = useCallback(async () => {
+    setCashflowLoading(true)
+    setCashflowError(null)
+    try {
+      const res = await fetch('/api/cashflow', { cache: 'no-store' })
+      if (!res.ok) throw new Error('Error al obtener el cashflow')
+      setCashflowData(await res.json())
+    } catch (err) {
+      setCashflowError(err instanceof Error ? err.message : 'Error desconocido')
+    } finally {
+      setCashflowLoading(false)
+    }
+  }, [])
+
   // Initial load
   useEffect(() => {
     fetchPayments()
@@ -196,6 +214,12 @@ export default function Dashboard() {
       fetchReleases()
     }
   }, [tab, releasesData, releasesLoading, fetchReleases])
+
+  useEffect(() => {
+    if (tab === 'cashflow' && !cashflowData && !cashflowLoading) {
+      fetchCashflow()
+    }
+  }, [tab, cashflowData, cashflowLoading, fetchCashflow])
 
   useEffect(() => {
     if (tab === 'publicaciones' && !itemsData && !itemsLoading) {
@@ -274,7 +298,7 @@ export default function Dashboard() {
 
         {/* Tabs */}
         <div className="flex gap-1 border-b border-gray-800">
-          {(['pagos', 'publicaciones', 'acreditaciones'] as Tab[]).map((t) => (
+          {(['pagos', 'publicaciones', 'acreditaciones', 'cashflow'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -284,7 +308,7 @@ export default function Dashboard() {
                   : 'border-transparent text-gray-500 hover:text-gray-300'
               }`}
             >
-              {t === 'pagos' ? `Pagos del día` : t === 'publicaciones' ? `Publicaciones${itemsData ? ` (${itemsData.total})` : ''}` : `Acreditaciones`}
+              {t === 'pagos' ? `Pagos del día` : t === 'publicaciones' ? `Publicaciones${itemsData ? ` (${itemsData.total})` : ''}` : t === 'acreditaciones' ? `Acreditaciones` : `Cashflow`}
             </button>
           ))}
         </div>
@@ -417,6 +441,49 @@ export default function Dashboard() {
                   <PaymentsTable payments={data.payments} />
                 </div>
               </>
+            )}
+          </>
+        )}
+
+        {/* CASHFLOW TAB */}
+        {tab === 'cashflow' && (
+          <>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">Cashflow proyectado</h2>
+              <button
+                onClick={fetchCashflow}
+                disabled={cashflowLoading}
+                className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors text-gray-300"
+              >
+                <span className={cashflowLoading ? 'animate-spin inline-block' : ''}>↻</span>
+                {cashflowLoading ? 'Cargando...' : 'Actualizar'}
+              </button>
+            </div>
+
+            {cashflowError && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400 flex items-center gap-2">
+                <span>⚠</span><span>{cashflowError}</span>
+                <button onClick={fetchCashflow} className="ml-auto text-xs underline">Reintentar</button>
+              </div>
+            )}
+
+            {cashflowLoading && !cashflowData && (
+              <div className="space-y-3 animate-pulse">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl h-20" />
+                  ))}
+                </div>
+                <div className="bg-gray-900 border border-gray-800 rounded-xl h-64" />
+              </div>
+            )}
+
+            {cashflowData && (
+              <CashflowView
+                data={cashflowData as Parameters<typeof CashflowView>[0]['data']}
+                onRefresh={fetchCashflow}
+                loading={cashflowLoading}
+              />
             )}
           </>
         )}

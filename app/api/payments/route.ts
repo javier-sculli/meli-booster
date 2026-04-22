@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
       fetched_at: new Date().toISOString(),
     })
   } catch (err) {
-    console.error('Payments fetch error:', err)
+    console.error('Payments fetch error:', err instanceof Error ? err.stack : err)
     return NextResponse.json(
       { error: 'Failed to fetch payments' },
       { status: 500 }
