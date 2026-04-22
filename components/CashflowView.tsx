@@ -216,14 +216,14 @@ export default function CashflowView({ data, onRefresh, loading }: Props) {
   const tableScrollRef = useRef<HTMLDivElement>(null)
   const todayColRef = useRef<HTMLTableCellElement>(null)
 
-  // Scroll to today column on mount / data change
+  // Scroll to today column on mount, data change, or view mode change
   useEffect(() => {
     if (!tableScrollRef.current || !todayColRef.current) return
     const container = tableScrollRef.current
     const todayEl = todayColRef.current
-    const stickyWidth = 144 // approx width of sticky label column
+    const stickyWidth = 144
     container.scrollLeft = todayEl.offsetLeft - stickyWidth - 16
-  }, [data])
+  }, [data, viewMode])
 
   const saveDisponible = useCallback(async () => {
     setSavingDisponible(true)
