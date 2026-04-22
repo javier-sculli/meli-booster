@@ -19,10 +19,9 @@ interface MPPaymentRaw {
   installments: number
 }
 
-async function fetchAllReleasePayments(accessToken: string): Promise<MPPaymentRaw[]> {
-  // Fetch from 7 days ago to capture any recent acreditaciones
+async function fetchAllReleasePayments(accessToken: string, daysBack: number): Promise<MPPaymentRaw[]> {
   const begin = new Date()
-  begin.setDate(begin.getDate() - 7)
+  begin.setDate(begin.getDate() - daysBack)
   const beginStr = begin.toISOString().split('T')[0]
 
   const first = await fetch(
@@ -75,12 +74,15 @@ export async function GET() {
   const accessToken = await getValidAccessToken()
   if (!accessToken) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const DAYS_BACK = 30
+  const DAYS_FORWARD = 30
+
   const [disponibleManual, mpBalance, egresos, aportes, payments] = await Promise.all([
     getDisponible(),
     getMPBalance(accessToken),
     getEgresos(),
     getAportes(),
-    fetchAllReleasePayments(accessToken),
+    fetchAllReleasePayments(accessToken, DAYS_BACK + 5),
   ])
 
   // Use MP balance if available, fall back to manual
@@ -99,7 +101,31 @@ export async function GET() {
     meliByDate.set(date, (meliByDate.get(date) ?? 0) + net)
   }
 
-  // Build 30-day grid starting today
+  // Build date list: DAYS_BACK ago → today → DAYS_FORWARD ahead
+  const totalDays = DAYS_BACK + DAYS_FORWARD + 1
+  const startOffset = -DAYS_BACK
+
+  const dateList: string[] = []
+  for (let i = startOffset; i <= DAYS_FORWARD; i++) {
+    const d = new Date()
+    d.setDate(d.getDate() + i)
+    dateList.push(toARDate(d.toISOString()))
+  }
+
+  // Compute caja starting from DAYS_BACK ago.
+  // "disponible" = today's balance, so back-calculate the starting caja:
+  // caja_start = disponible - sum(ingresos_meli[past] + aportes[past] - egresos[past]) for days from start to yesterday
+  let cajaStart = disponible
+  for (let i = startOffset; i < 0; i++) {
+    const d = new Date()
+    d.setDate(d.getDate() + i)
+    const date = toARDate(d.toISOString())
+    const meli = meliByDate.get(date) ?? 0
+    const egr = egresos.filter((e) => e.date === date).reduce((s, e) => s + e.amount, 0)
+    const apr = aportes.filter((a) => a.date === date).reduce((s, a) => s + a.amount, 0)
+    cajaStart -= meli + apr - egr
+  }
+
   const days: {
     date: string
     ingresos_meli: number
@@ -108,21 +134,12 @@ export async function GET() {
     caja: number
   }[] = []
 
-  let caja = disponible
+  let caja = cajaStart
 
-  for (let i = 0; i < 30; i++) {
-    const d = new Date()
-    d.setDate(d.getDate() + i)
-    const date = toARDate(d.toISOString())
-
+  for (const date of dateList) {
     const ingresos_meli = meliByDate.get(date) ?? 0
-    const egresosDay = egresos
-      .filter((e) => e.date === date)
-      .reduce((s, e) => s + e.amount, 0)
-    const aportesDay = aportes
-      .filter((a) => a.date === date)
-      .reduce((s, a) => s + a.amount, 0)
-
+    const egresosDay = egresos.filter((e) => e.date === date).reduce((s, e) => s + e.amount, 0)
+    const aportesDay = aportes.filter((a) => a.date === date).reduce((s, a) => s + a.amount, 0)
     caja = caja + ingresos_meli + aportesDay - egresosDay
     days.push({ date, ingresos_meli, egresos: egresosDay, aportes: aportesDay, caja })
   }
