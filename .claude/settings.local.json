@@ -67,7 +67,8 @@
       "Bash(curl -s \"http://localhost:3000/api/payments\" -v)",
       "Bash(curl -s http://localhost:3000/api/cashflow/egreso -X POST -H \"Content-Type: application/json\" -d '{\"date\":\"2026-05-08\",\"amount\":3016695,\"description\":\"Pagos\"}')",
       "Bash(curl -s http://localhost:3000/api/cashflow/egreso -X POST -H \"Content-Type: application/json\" -d '{\"date\":\"2026-05-10\",\"amount\":360000,\"description\":\"Pagos\"}')",
-      "Bash(curl -s http://localhost:3000/api/cashflow/egreso -X POST -H \"Content-Type: application/json\" -d '{\"date\":\"2026-05-20\",\"amount\":368000,\"description\":\"Pagos\"}')"
+      "Bash(curl -s http://localhost:3000/api/cashflow/egreso -X POST -H \"Content-Type: application/json\" -d '{\"date\":\"2026-05-20\",\"amount\":368000,\"description\":\"Pagos\"}')",
+      "Bash(curl -s http://localhost:3000/api/cashflow/egreso -X POST -H \"Content-Type: application/json\" -d '{\"date\":\"2026-04-20\",\"amount\":4418560,\"description\":\"Fc Jayor\"}')"
     ]
   }
 }

@@ -350,43 +350,41 @@ export default function CashflowView({ data, onRefresh, loading }: Props) {
         </div>
       </div>
 
-      {/* Sub-tabs + view toggle */}
-      <div className="flex items-center justify-between border-b border-gray-800">
-        <div className="flex gap-1">
-          {SUB_TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setSubTab(t.key)}
-              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                subTab === t.key
-                  ? 'border-yellow-400 text-yellow-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        {subTab === 'flujo' && (
-          <div className="flex items-center gap-1 pb-1">
-            {(['day', 'week'] as ViewMode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => setViewMode(m)}
-                className={`px-3 py-1 text-xs rounded-lg transition-colors ${
-                  viewMode === m
-                    ? 'bg-gray-700 text-white'
-                    : 'text-gray-500 hover:text-gray-300'
-                }`}
-              >
-                {m === 'day' ? 'Día' : 'Semana'}
-              </button>
-            ))}
-          </div>
-        )}
+      {/* Sub-tabs */}
+      <div className="flex gap-1 border-b border-gray-800">
+        {SUB_TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setSubTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              subTab === t.key
+                ? 'border-yellow-400 text-yellow-400'
+                : 'border-transparent text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       {/* FLUJO */}
+      {subTab === 'flujo' && (
+        <div className="flex gap-1">
+          {(['day', 'week'] as ViewMode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => setViewMode(m)}
+              className={`px-3 py-1.5 text-xs rounded-lg transition-colors border ${
+                viewMode === m
+                  ? 'bg-gray-700 border-gray-600 text-white'
+                  : 'border-gray-800 text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {m === 'day' ? 'Día' : 'Semana'}
+            </button>
+          ))}
+        </div>
+      )}
       {subTab === 'flujo' && (() => {
         const weeks = groupByWeek(data.days, data.today)
         const cols = viewMode === 'week' ? weeks : data.days
