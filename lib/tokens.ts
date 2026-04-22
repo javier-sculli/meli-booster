@@ -128,4 +128,6 @@ export async function getValidAccessToken(): Promise<string | null> {
 export async function clearTokens() {
   const cookieStore = await cookies()
   cookieStore.delete(COOKIE_NAME)
+  await redis.del(REDIS_KEY)
+  await redis.del(REDIS_USER_KEY)
 }
