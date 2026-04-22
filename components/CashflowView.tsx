@@ -28,6 +28,70 @@ interface Props {
 }
 
 type SubTab = 'flujo' | 'egresos' | 'aportes'
+type ViewMode = 'day' | 'week'
+
+interface WeekRow {
+  label: string        // "22-28 abr"
+  dateFrom: string     // first day YYYY-MM-DD
+  dateTo: string       // last day YYYY-MM-DD
+  ingresos_meli: number
+  egresos: number
+  aportes: number
+  caja: number         // last day's caja
+  containsToday: boolean
+  isPast: boolean
+}
+
+function groupByWeek(days: DayRow[], today: string): WeekRow[] {
+  if (days.length === 0) return []
+  const weeks: WeekRow[] = []
+  let i = 0
+
+  while (i < days.length) {
+    const [y, m, d] = days[i].date.split('-').map(Number)
+    const dateObj = new Date(y, m - 1, d)
+    // Find Monday of this week
+    const dow = dateObj.getDay() // 0=Sun
+    const mondayOffset = dow === 0 ? -6 : 1 - dow
+    const monday = new Date(dateObj)
+    monday.setDate(monday.getDate() + mondayOffset)
+    const sunday = new Date(monday)
+    sunday.setDate(sunday.getDate() + 6)
+
+    const mondayStr = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`
+    const sundayStr = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, '0')}-${String(sunday.getDate()).padStart(2, '0')}`
+
+    // Collect days that fall in this Mon-Sun range
+    const weekDays: DayRow[] = []
+    while (i < days.length && days[i].date <= sundayStr) {
+      weekDays.push(days[i])
+      i++
+    }
+
+    if (weekDays.length === 0) { i++; continue }
+
+    const firstDay = weekDays[0]
+    const lastDay = weekDays[weekDays.length - 1]
+
+    const fmtShort = (dateStr: string) => {
+      const [fy, fm, fd] = dateStr.split('-').map(Number)
+      return new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short' }).format(new Date(fy, fm - 1, fd))
+    }
+
+    weeks.push({
+      label: `${fmtShort(firstDay.date)} – ${fmtShort(lastDay.date)}`,
+      dateFrom: firstDay.date,
+      dateTo: lastDay.date,
+      ingresos_meli: weekDays.reduce((s, r) => s + r.ingresos_meli, 0),
+      egresos: weekDays.reduce((s, r) => s + r.egresos, 0),
+      aportes: weekDays.reduce((s, r) => s + r.aportes, 0),
+      caja: lastDay.caja,
+      containsToday: weekDays.some((r) => r.date === today),
+      isPast: lastDay.date < today,
+    })
+  }
+  return weeks
+}
 
 const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })
 
@@ -148,6 +212,7 @@ export default function CashflowView({ data, onRefresh, loading }: Props) {
   const [savingDisponible, setSavingDisponible] = useState(false)
   const [disponibleInput, setDisponibleInput] = useState('')
   const [editingDisponible, setEditingDisponible] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>('week')
   const tableScrollRef = useRef<HTMLDivElement>(null)
   const todayColRef = useRef<HTMLTableCellElement>(null)
 
@@ -285,152 +350,192 @@ export default function CashflowView({ data, onRefresh, loading }: Props) {
         </div>
       </div>
 
-      {/* Sub-tabs */}
-      <div className="flex gap-1 border-b border-gray-800">
-        {SUB_TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setSubTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              subTab === t.key
-                ? 'border-yellow-400 text-yellow-400'
-                : 'border-transparent text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* Sub-tabs + view toggle */}
+      <div className="flex items-center justify-between border-b border-gray-800">
+        <div className="flex gap-1">
+          {SUB_TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setSubTab(t.key)}
+              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                subTab === t.key
+                  ? 'border-yellow-400 text-yellow-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {subTab === 'flujo' && (
+          <div className="flex items-center gap-1 pb-1">
+            {(['day', 'week'] as ViewMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => setViewMode(m)}
+                className={`px-3 py-1 text-xs rounded-lg transition-colors ${
+                  viewMode === m
+                    ? 'bg-gray-700 text-white'
+                    : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {m === 'day' ? 'Día' : 'Semana'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* FLUJO — días como columnas */}
-      {subTab === 'flujo' && (
-        <div ref={tableScrollRef} className="overflow-x-auto rounded-xl border border-gray-800">
-          <table className="text-sm border-collapse" style={{ minWidth: `${140 + data.days.length * 110}px` }}>
-            <thead>
-              <tr className="border-b border-gray-800 bg-gray-900">
-                {/* sticky label col */}
-                <th className="sticky left-0 z-10 bg-gray-900 text-left px-4 py-2.5 text-xs font-medium text-gray-500 w-36 min-w-36" />
-                {data.days.map((d) => {
-                  const isToday = d.date === data.today
-                  const isPast = d.date < data.today
-                  const [y, m, day] = d.date.split('-').map(Number)
-                  const dateObj = new Date(y, m - 1, day)
-                  const weekday = new Intl.DateTimeFormat('es-AR', { weekday: 'short' }).format(dateObj)
-                  const dayMonth = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short' }).format(dateObj)
-                  return (
-                    <th
-                      key={d.date}
-                      ref={isToday ? todayColRef : undefined}
-                      className={`text-center px-2 py-2 text-xs font-medium min-w-[100px] ${
-                        isToday
-                          ? 'text-yellow-400 bg-yellow-400/5'
-                          : isPast
-                          ? 'text-gray-600'
-                          : 'text-gray-400'
-                      }`}
-                    >
-                      <div className="capitalize">{weekday}</div>
-                      <div className={isToday ? 'font-bold' : ''}>{dayMonth}</div>
-                    </th>
-                  )
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {/* Disponible */}
-              <tr className="border-b border-gray-800/40">
-                <td className="sticky left-0 z-10 bg-gray-950 px-4 py-2 text-xs font-semibold text-gray-400 whitespace-nowrap">
-                  Disponible
-                </td>
-                {data.days.map((d, i) => (
-                  <td key={d.date} className={`text-center px-2 py-2 text-xs ${d.date < data.today ? 'opacity-40' : ''}`}>
-                    {i === 0 ? <span className="text-white font-semibold">{fmt(data.disponible)}</span> : <span className="text-gray-700">—</span>}
+      {/* FLUJO */}
+      {subTab === 'flujo' && (() => {
+        const weeks = groupByWeek(data.days, data.today)
+        const cols = viewMode === 'week' ? weeks : data.days
+        const colCount = cols.length
+        const colWidth = viewMode === 'week' ? 130 : 100
+
+        return (
+          <div ref={tableScrollRef} className="overflow-x-auto rounded-xl border border-gray-800">
+            <table className="text-sm border-collapse" style={{ minWidth: `${144 + colCount * colWidth}px` }}>
+              <thead>
+                <tr className="border-b border-gray-800 bg-gray-900">
+                  <th className="sticky left-0 z-10 bg-gray-900 text-left px-4 py-2.5 text-xs font-medium text-gray-500 w-36 min-w-36" />
+                  {viewMode === 'day'
+                    ? data.days.map((d) => {
+                        const isToday = d.date === data.today
+                        const isPast = d.date < data.today
+                        const [y, m, day] = d.date.split('-').map(Number)
+                        const dateObj = new Date(y, m - 1, day)
+                        const weekday = new Intl.DateTimeFormat('es-AR', { weekday: 'short' }).format(dateObj)
+                        const dayMonth = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short' }).format(dateObj)
+                        return (
+                          <th
+                            key={d.date}
+                            ref={isToday ? todayColRef : undefined}
+                            className={`text-center px-2 py-2 text-xs font-medium min-w-[100px] ${
+                              isToday ? 'text-yellow-400 bg-yellow-400/5' : isPast ? 'text-gray-600' : 'text-gray-400'
+                            }`}
+                          >
+                            <div className="capitalize">{weekday}</div>
+                            <div className={isToday ? 'font-bold' : ''}>{dayMonth}</div>
+                          </th>
+                        )
+                      })
+                    : weeks.map((w) => (
+                        <th
+                          key={w.dateFrom}
+                          ref={w.containsToday ? todayColRef : undefined}
+                          className={`text-center px-2 py-2 text-xs font-medium min-w-[130px] ${
+                            w.containsToday ? 'text-yellow-400 bg-yellow-400/5' : w.isPast ? 'text-gray-600' : 'text-gray-400'
+                          }`}
+                        >
+                          {w.label}
+                        </th>
+                      ))}
+                </tr>
+              </thead>
+              <tbody>
+                {/* Disponible — only in day mode, first col */}
+                {viewMode === 'day' && (
+                  <tr className="border-b border-gray-800/40">
+                    <td className="sticky left-0 z-10 bg-gray-950 px-4 py-2 text-xs font-semibold text-gray-400 whitespace-nowrap">
+                      Disponible
+                    </td>
+                    {data.days.map((d, i) => (
+                      <td key={d.date} className={`text-center px-2 py-2 text-xs ${d.date < data.today ? 'opacity-40' : ''}`}>
+                        {i === 0 ? <span className="text-white font-semibold">{fmt(data.disponible)}</span> : <span className="text-gray-700">—</span>}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+
+                {/* Ingresos header */}
+                <tr className="bg-gray-900/40">
+                  <td className="sticky left-0 z-10 bg-gray-900/60 px-4 py-1.5 text-[10px] font-bold text-emerald-500/70 uppercase tracking-wider">
+                    Ingresos
                   </td>
-                ))}
-              </tr>
+                  {cols.map((c) => <td key={'dateFrom' in c ? c.dateFrom : c.date} />)}
+                </tr>
 
-              {/* Ingresos section header */}
-              <tr className="bg-gray-900/40">
-                <td className="sticky left-0 z-10 bg-gray-900/60 px-4 py-1.5 text-[10px] font-bold text-emerald-500/70 uppercase tracking-wider">
-                  Ingresos
-                </td>
-                {data.days.map((d) => <td key={d.date} />)}
-              </tr>
+                {/* MELI */}
+                <tr className="border-b border-gray-800/40 hover:bg-gray-900/20">
+                  <td className="sticky left-0 z-10 bg-gray-950 px-4 py-2.5 text-xs text-gray-400 pl-6">MELI</td>
+                  {viewMode === 'day'
+                    ? data.days.map((d) => (
+                        <td key={d.date} className={`text-center px-2 py-2.5 text-xs ${d.date < data.today ? 'opacity-50' : ''}`}>
+                          {d.ingresos_meli > 0 ? <span className="text-emerald-400 font-medium">{fmt(d.ingresos_meli)}</span> : <span className="text-gray-700">—</span>}
+                        </td>
+                      ))
+                    : weeks.map((w) => (
+                        <td key={w.dateFrom} className={`text-center px-2 py-2.5 text-xs ${w.isPast ? 'opacity-50' : ''}`}>
+                          {w.ingresos_meli > 0 ? <span className="text-emerald-400 font-medium">{fmt(w.ingresos_meli)}</span> : <span className="text-gray-700">—</span>}
+                        </td>
+                      ))}
+                </tr>
 
-              {/* MELI */}
-              <tr className="border-b border-gray-800/40 hover:bg-gray-900/20">
-                <td className="sticky left-0 z-10 bg-gray-950 px-4 py-2.5 text-xs text-gray-400 pl-6">
-                  MELI
-                </td>
-                {data.days.map((d) => (
-                  <td key={d.date} className={`text-center px-2 py-2.5 text-xs ${d.date < data.today ? 'opacity-50' : ''}`}>
-                    {d.ingresos_meli > 0
-                      ? <span className="text-emerald-400 font-medium">{fmt(d.ingresos_meli)}</span>
-                      : <span className="text-gray-700">—</span>}
+                {/* Egresos header */}
+                <tr className="bg-gray-900/40">
+                  <td className="sticky left-0 z-10 bg-gray-900/60 px-4 py-1.5 text-[10px] font-bold text-red-500/70 uppercase tracking-wider">
+                    Egresos
                   </td>
-                ))}
-              </tr>
+                  {cols.map((c) => <td key={'dateFrom' in c ? c.dateFrom : c.date} />)}
+                </tr>
 
-              {/* Egresos section header */}
-              <tr className="bg-gray-900/40">
-                <td className="sticky left-0 z-10 bg-gray-900/60 px-4 py-1.5 text-[10px] font-bold text-red-500/70 uppercase tracking-wider">
-                  Egresos
-                </td>
-                {data.days.map((d) => <td key={d.date} />)}
-              </tr>
+                {/* Pagos */}
+                <tr className="border-b border-gray-800/40 hover:bg-gray-900/20">
+                  <td className="sticky left-0 z-10 bg-gray-950 px-4 py-2.5 text-xs text-gray-400 pl-6">Pagos</td>
+                  {viewMode === 'day'
+                    ? data.days.map((d) => (
+                        <td key={d.date} className={`text-center px-2 py-2.5 text-xs ${d.date < data.today ? 'opacity-50' : ''}`}>
+                          {d.egresos > 0 ? <span className="text-red-400 font-medium">−{fmt(d.egresos)}</span> : <span className="text-gray-700">—</span>}
+                        </td>
+                      ))
+                    : weeks.map((w) => (
+                        <td key={w.dateFrom} className={`text-center px-2 py-2.5 text-xs ${w.isPast ? 'opacity-50' : ''}`}>
+                          {w.egresos > 0 ? <span className="text-red-400 font-medium">−{fmt(w.egresos)}</span> : <span className="text-gray-700">—</span>}
+                        </td>
+                      ))}
+                </tr>
 
-              {/* Pagos */}
-              <tr className="border-b border-gray-800/40 hover:bg-gray-900/20">
-                <td className="sticky left-0 z-10 bg-gray-950 px-4 py-2.5 text-xs text-gray-400 pl-6">
-                  Pagos
-                </td>
-                {data.days.map((d) => (
-                  <td key={d.date} className={`text-center px-2 py-2.5 text-xs ${d.date < data.today ? 'opacity-50' : ''}`}>
-                    {d.egresos > 0
-                      ? <span className="text-red-400 font-medium">−{fmt(d.egresos)}</span>
-                      : <span className="text-gray-700">—</span>}
-                  </td>
-                ))}
-              </tr>
+                {/* Aportes */}
+                <tr className="border-b border-gray-800/40 hover:bg-gray-900/20">
+                  <td className="sticky left-0 z-10 bg-gray-950 px-4 py-2.5 text-xs font-semibold text-gray-400">Aportes</td>
+                  {viewMode === 'day'
+                    ? data.days.map((d) => (
+                        <td key={d.date} className={`text-center px-2 py-2.5 text-xs ${d.date < data.today ? 'opacity-50' : ''}`}>
+                          {d.aportes > 0 ? <span className="text-blue-400 font-medium">{fmt(d.aportes)}</span> : <span className="text-gray-700">—</span>}
+                        </td>
+                      ))
+                    : weeks.map((w) => (
+                        <td key={w.dateFrom} className={`text-center px-2 py-2.5 text-xs ${w.isPast ? 'opacity-50' : ''}`}>
+                          {w.aportes > 0 ? <span className="text-blue-400 font-medium">{fmt(w.aportes)}</span> : <span className="text-gray-700">—</span>}
+                        </td>
+                      ))}
+                </tr>
 
-              {/* Aportes */}
-              <tr className="border-b border-gray-800/40 hover:bg-gray-900/20">
-                <td className="sticky left-0 z-10 bg-gray-950 px-4 py-2.5 text-xs font-semibold text-gray-400">
-                  Aportes
-                </td>
-                {data.days.map((d) => (
-                  <td key={d.date} className={`text-center px-2 py-2.5 text-xs ${d.date < data.today ? 'opacity-50' : ''}`}>
-                    {d.aportes > 0
-                      ? <span className="text-blue-400 font-medium">{fmt(d.aportes)}</span>
-                      : <span className="text-gray-700">—</span>}
-                  </td>
-                ))}
-              </tr>
-
-              {/* Caja */}
-              <tr className="bg-gray-900/30">
-                <td className="sticky left-0 z-10 bg-gray-900/60 px-4 py-3 text-xs font-bold text-white">
-                  Caja
-                </td>
-                {data.days.map((d) => (
-                  <td
-                    key={d.date}
-                    className={`text-center px-2 py-3 text-xs font-bold ${
-                      d.date === data.today
-                        ? 'text-yellow-400'
-                        : d.date < data.today
-                        ? 'text-gray-500'
-                        : 'text-white'
-                    }`}
-                  >
-                    {fmt(d.caja)}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
+                {/* Caja */}
+                <tr className="bg-gray-900/30">
+                  <td className="sticky left-0 z-10 bg-gray-900/60 px-4 py-3 text-xs font-bold text-white">Caja</td>
+                  {viewMode === 'day'
+                    ? data.days.map((d) => (
+                        <td key={d.date} className={`text-center px-2 py-3 text-xs font-bold ${
+                          d.date === data.today ? 'text-yellow-400' : d.date < data.today ? 'text-gray-500' : 'text-white'
+                        }`}>
+                          {fmt(d.caja)}
+                        </td>
+                      ))
+                    : weeks.map((w) => (
+                        <td key={w.dateFrom} className={`text-center px-2 py-3 text-xs font-bold ${
+                          w.containsToday ? 'text-yellow-400' : w.isPast ? 'text-gray-500' : 'text-white'
+                        }`}>
+                          {fmt(w.caja)}
+                        </td>
+                      ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )
+      })()}
 
       {/* EGRESOS */}
       {subTab === 'egresos' && (
