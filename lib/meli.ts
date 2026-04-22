@@ -95,7 +95,7 @@ export function buildAuthUrl(): string {
     response_type: 'code',
     client_id: process.env.MELI_APP_ID!,
     redirect_uri: process.env.MELI_REDIRECT_URI!,
-    scope: 'read write offline_access payments',
+    scope: 'read write offline_access payments invoices',
   })
   return `${MELI_AUTH_URL}?${params}`
 }
