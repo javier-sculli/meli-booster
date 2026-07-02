@@ -40,15 +40,24 @@ function PaymentSkuBadge({
   sku,
   quantity,
   cost,
+  onSkuClick,
 }: {
   sku: string
   quantity: number
   cost: number
+  onSkuClick?: (sku: string) => void
 }) {
   const hasCost = cost > 0
 
   return (
-    <div className="flex items-center gap-1.5 mt-1 bg-gray-800 border border-gray-700/50 rounded px-1.5 py-0.5 w-fit" onClick={(e) => e.stopPropagation()}>
+    <div
+      onClick={(e) => {
+        e.stopPropagation()
+        onSkuClick?.(sku)
+      }}
+      className="flex items-center gap-1.5 mt-1 bg-gray-800 border border-gray-700/50 rounded px-1.5 py-0.5 w-fit hover:border-yellow-400/50 cursor-pointer transition-colors"
+      title="Hacer clic para ver en Publicaciones"
+    >
       <span className="text-[10px] text-gray-300 font-mono">
         {sku} ({quantity}u)
       </span>
@@ -67,8 +76,10 @@ function PaymentSkuBadge({
 
 export default function PaymentsTable({
   payments,
+  onSkuClick,
 }: {
   payments: PaymentWithCumulative[]
+  onSkuClick?: (sku: string) => void
 }) {
   if (payments.length === 0) {
     return (
@@ -143,6 +154,7 @@ export default function PaymentsTable({
                             sku={item.sku}
                             quantity={item.quantity}
                             cost={item.cost ?? 0}
+                            onSkuClick={onSkuClick}
                           />
                         ))}
                       </div>

@@ -132,6 +132,7 @@ export default function Dashboard() {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('hoy')
   const [dateFrom, setDateFrom] = useState(getARDate(0))
   const [dateTo, setDateTo] = useState(getARDate(0))
+  const [listingsSearch, setListingsSearch] = useState('')
 
   const fetchPayments = useCallback(async (isManual = false, from?: string, to?: string) => {
     if (isManual) setRefreshing(true)
@@ -215,6 +216,11 @@ export default function Dashboard() {
     fetchPayments()
     fetchItems()
   }, [fetchPayments, fetchItems])
+
+  const handleSkuClick = useCallback((sku: string) => {
+    setTab('publicaciones')
+    setListingsSearch(sku)
+  }, [])
 
   // Initial load
   useEffect(() => {
@@ -313,7 +319,12 @@ export default function Dashboard() {
           {(['pagos', 'publicaciones', 'acreditaciones', 'cashflow'] as Tab[]).map((t) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => {
+                setTab(t)
+                if (t === 'publicaciones') {
+                  setListingsSearch('')
+                }
+              }}
               className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${
                 tab === t
                   ? 'border-yellow-400 text-yellow-400'
@@ -450,7 +461,7 @@ export default function Dashboard() {
                     <h3 className="text-sm font-semibold text-gray-300">Transacciones</h3>
                     <span className="text-xs text-gray-500">Columna "Acumulado" muestra el cash flow corrido del día</span>
                   </div>
-                  <PaymentsTable payments={data.payments} />
+                  <PaymentsTable payments={data.payments} onSkuClick={handleSkuClick} />
                 </div>
               </>
             )}
@@ -527,7 +538,7 @@ export default function Dashboard() {
               <div className="bg-gray-900 border border-gray-800 rounded-xl h-64 animate-pulse" />
             )}
 
-            {itemsData && <ListingsTable items={itemsData.items} onCostUpdated={handleCostUpdated} />}
+            {itemsData && <ListingsTable items={itemsData.items} onCostUpdated={handleCostUpdated} initialSearch={listingsSearch} />}
           </>
         )}
       </main>

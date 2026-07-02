@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface Item {
   id: string
@@ -372,10 +372,25 @@ function GroupRow({ group, onCostUpdated }: { group: Group; onCostUpdated?: () =
   )
 }
 
-export default function ListingsTable({ items, onCostUpdated }: { items: Item[]; onCostUpdated?: () => void }) {
+export default function ListingsTable({
+  items,
+  onCostUpdated,
+  initialSearch,
+}: {
+  items: Item[]
+  onCostUpdated?: () => void
+  initialSearch?: string
+}) {
   const [statusFilter, setStatusFilter] = useState('todos')
   const [categoryFilter, setCategoryFilter] = useState('todas')
   const [hideNoStock, setHideNoStock] = useState(true)
+  const [searchTerm, setSearchTerm] = useState(initialSearch || '')
+
+  useEffect(() => {
+    if (initialSearch !== undefined) {
+      setSearchTerm(initialSearch)
+    }
+  }, [initialSearch])
 
   if (items.length === 0) {
     return (
@@ -403,6 +418,14 @@ export default function ListingsTable({ items, onCostUpdated }: { items: Item[];
     .filter((i) => statusFilter === 'todos' || i.status === statusFilter)
     .filter((i) => categoryFilter === 'todas' || i.category_name === categoryFilter)
     .filter((i) => !hideNoStock || categoriesWithStock.has(i.category_name ?? ''))
+    .filter((i) => {
+      if (!searchTerm) return true
+      const query = searchTerm.toLowerCase().trim()
+      const titleMatch = i.title?.toLowerCase().includes(query)
+      const skuMatch = i.sku?.toLowerCase().includes(query)
+      const idMatch = i.id?.toLowerCase().includes(query)
+      return titleMatch || skuMatch || idMatch
+    })
 
   const groups = groupItems(filtered)
 
@@ -431,8 +454,17 @@ export default function ListingsTable({ items, onCostUpdated }: { items: Item[];
         ))}
       </div>
 
-      {/* Filtro categoría */}
+      {/* Filtro categoría & Búsqueda */}
       <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-gray-500 shrink-0">Buscar:</span>
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Título, SKU o ID..."
+          className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-yellow-400/50 min-w-[200px]"
+        />
+
         <span className="text-xs text-gray-500 shrink-0">Categoría:</span>
         <select
           value={categoryFilter}
