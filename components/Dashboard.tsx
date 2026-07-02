@@ -10,6 +10,10 @@ import type { MeliCollection } from '@/lib/meli'
 
 interface PaymentWithCumulative extends MeliCollection {
   cumulative_total: number
+  skus?: Array<{ title: string; sku: string; quantity: number; unit_price: number }>
+  total_cost?: number
+  profit?: number
+  has_missing_cost?: boolean
 }
 
 interface PaymentsData {
@@ -18,6 +22,8 @@ interface PaymentsData {
     total_net: number
     total_gross: number
     total_fees: number
+    total_cost?: number
+    total_profit?: number
     count: number
     count_all: number
     avg_ticket: number
@@ -50,6 +56,7 @@ interface Item {
   variant_label?: string
   sale_conditions?: string
   sku?: string
+  cost?: number
   brand?: string
   units_per_pack?: string
   financing?: string
@@ -203,6 +210,11 @@ export default function Dashboard() {
       setCashflowLoading(false)
     }
   }, [])
+
+  const handleCostUpdated = useCallback(() => {
+    fetchPayments()
+    fetchItems()
+  }, [fetchPayments, fetchItems])
 
   // Initial load
   useEffect(() => {
@@ -515,7 +527,7 @@ export default function Dashboard() {
               <div className="bg-gray-900 border border-gray-800 rounded-xl h-64 animate-pulse" />
             )}
 
-            {itemsData && <ListingsTable items={itemsData.items} />}
+            {itemsData && <ListingsTable items={itemsData.items} onCostUpdated={handleCostUpdated} />}
           </>
         )}
       </main>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAllCollections, getTodayAR, getUserInfo } from '@/lib/meli'
+import { getAllCollections, getTodayAR, getUserInfo, getOrderSkus } from '@/lib/meli'
 import { getValidAccessToken, getTokens } from '@/lib/tokens'
+import redis from '@/lib/redis'
 
 export async function GET(request: NextRequest) {
   const accessToken = await getValidAccessToken()
@@ -20,14 +21,52 @@ export async function GET(request: NextRequest) {
       getUserInfo(accessToken),
     ])
 
+    // Fetch order SKUs in parallel and fetch costs from Redis
+    const [paymentsWithSkus, rawCosts] = await Promise.all([
+      Promise.all(
+        collections.map(async (c) => {
+          const skus = c.order_id ? await getOrderSkus(accessToken, c.order_id) : []
+          return { ...c, skus }
+        })
+      ),
+      redis.hgetall('sku_costs').then(res => res || {})
+    ])
+
+    const costsMap: Record<string, number> = {}
+    for (const [sku, val] of Object.entries(rawCosts)) {
+      costsMap[sku] = parseFloat(val) || 0
+    }
+
+        const decoratedCollections = paymentsWithSkus.map((c) => {
+      let totalCost = 0
+      let hasMissingCost = false
+      const skusWithCost = c.skus.map((item) => {
+        const skuCost = costsMap[item.sku] ?? 0
+        if (skuCost === 0) {
+          hasMissingCost = true
+        } else {
+          totalCost += item.quantity * skuCost
+        }
+        return { ...item, cost: skuCost }
+      })
+      const profit = c.net_received_amount - totalCost
+      return {
+        ...c,
+        skus: skusWithCost,
+        total_cost: totalCost,
+        profit,
+        has_missing_cost: hasMissingCost || (c.skus.length > 0 && c.skus.some(s => !costsMap[s.sku] || costsMap[s.sku] === 0)),
+      }
+    })
+
     // Sort by date_created descending (most recent first)
-    collections.sort(
+    decoratedCollections.sort(
       (a, b) =>
         new Date(b.date_created).getTime() - new Date(a.date_created).getTime()
     )
 
     // Build cash flow: running total sorted ascending by time
-    const sorted = [...collections].sort(
+    const sorted = [...decoratedCollections].sort(
       (a, b) =>
         new Date(a.date_created).getTime() - new Date(b.date_created).getTime()
     )
@@ -41,12 +80,12 @@ export async function GET(request: NextRequest) {
     const cumulativeMap = new Map(
       withCumulative.map((c) => [c.id, c.cumulative_total])
     )
-    const result = collections.map((c) => ({
+    const result = decoratedCollections.map((c) => ({
       ...c,
       cumulative_total: cumulativeMap.get(c.id) ?? 0,
     }))
 
-    const approvedCollections = collections.filter(
+    const approvedCollections = result.filter(
       (c) => c.status === 'approved'
     )
     const summary = {
@@ -62,8 +101,16 @@ export async function GET(request: NextRequest) {
         (sum, c) => sum + (c.marketplace_fee ?? 0),
         0
       ),
+      total_cost: approvedCollections.reduce(
+        (sum, c) => sum + (c.total_cost ?? 0),
+        0
+      ),
+      total_profit: approvedCollections.reduce(
+        (sum, c) => sum + (c.profit ?? 0),
+        0
+      ),
       count: approvedCollections.length,
-      count_all: collections.length,
+      count_all: result.length,
       avg_ticket:
         approvedCollections.length > 0
           ? approvedCollections.reduce(
@@ -71,11 +118,11 @@ export async function GET(request: NextRequest) {
               0
             ) / approvedCollections.length
           : 0,
-      pending_count: collections.filter((c) => c.status === 'in_process' || c.status === 'pending').length,
-      pending_amount: collections
+      pending_count: result.filter((c) => c.status === 'in_process' || c.status === 'pending').length,
+      pending_amount: result
         .filter((c) => c.status === 'in_process' || c.status === 'pending')
         .reduce((sum, c) => sum + c.total_paid_amount, 0),
-      currency: collections[0]?.currency_id ?? 'ARS',
+      currency: result[0]?.currency_id ?? 'ARS',
     }
 
     return NextResponse.json({

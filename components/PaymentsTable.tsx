@@ -4,33 +4,10 @@ import type { MeliCollection } from '@/lib/meli'
 
 interface PaymentWithCumulative extends MeliCollection {
   cumulative_total: number
-}
-
-const STATUS_STYLES: Record<string, string> = {
-  approved: 'bg-green-500/10 text-green-400 border-green-500/20',
-  in_process: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-  pending: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  rejected: 'bg-red-500/10 text-red-400 border-red-500/20',
-  cancelled: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  approved: 'Acreditado',
-  in_process: 'En proceso',
-  pending: 'Pendiente',
-  rejected: 'Rechazado',
-  cancelled: 'Cancelado',
-}
-
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  visa: 'Visa',
-  master: 'Mastercard',
-  amex: 'Amex',
-  naranja: 'Naranja',
-  account_money: 'Dinero en cuenta',
-  debit_card: 'Débito',
-  bank_transfer: 'Transf. bancaria',
-  ticket: 'Efectivo',
+  skus?: Array<{ title: string; sku: string; quantity: number; unit_price: number; cost?: number }>
+  total_cost?: number
+  profit?: number
+  has_missing_cost?: boolean
 }
 
 function fmtTime(iso: string) {
@@ -43,6 +20,14 @@ function fmtTime(iso: string) {
   }).format(new Date(iso))
 }
 
+function fmtDay(iso: string) {
+  return new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    day: '2-digit',
+    month: '2-digit',
+  }).format(new Date(iso))
+}
+
 function fmtCurrency(amount: number, currency = 'ARS') {
   return new Intl.NumberFormat('es-AR', {
     style: 'currency',
@@ -51,8 +36,33 @@ function fmtCurrency(amount: number, currency = 'ARS') {
   }).format(amount)
 }
 
-function fmtMethod(methodId: string, type: string) {
-  return PAYMENT_METHOD_LABELS[methodId] ?? PAYMENT_METHOD_LABELS[type] ?? methodId
+function PaymentSkuBadge({
+  sku,
+  quantity,
+  cost,
+}: {
+  sku: string
+  quantity: number
+  cost: number
+}) {
+  const hasCost = cost > 0
+
+  return (
+    <div className="flex items-center gap-1.5 mt-1 bg-gray-800 border border-gray-700/50 rounded px-1.5 py-0.5 w-fit" onClick={(e) => e.stopPropagation()}>
+      <span className="text-[10px] text-gray-300 font-mono">
+        {sku} ({quantity}u)
+      </span>
+      {hasCost ? (
+        <span className="text-[9px] text-emerald-400 font-mono">
+          ${cost.toLocaleString('es-AR')}
+        </span>
+      ) : (
+        <span className="text-[9px] text-yellow-500/80 font-mono italic">
+          sin costo
+        </span>
+      )}
+    </div>
+  )
 }
 
 export default function PaymentsTable({
@@ -79,78 +89,102 @@ export default function PaymentsTable({
           <thead>
             <tr className="border-b border-gray-800">
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Día
+              </th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Hora
               </th>
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Orden
               </th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Comprador
-              </th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
-                Método
-              </th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+              <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Cuotas
               </th>
               <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Bruto
               </th>
-              <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
-                Comisión
+              <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Cargos por venta
+              </th>
+              <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Envíos
+              </th>
+              <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Impuestos
               </th>
               <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Neto
               </th>
-              <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
-                Acumulado
-              </th>
-              <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Estado
+              <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Rentabilidad
               </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
             {payments.map((p) => {
-              const fee = p.marketplace_fee ?? p.total_paid_amount - p.net_received_amount
               return (
                 <tr
                   key={p.id}
                   className="hover:bg-gray-800/50 transition-colors"
                 >
                   <td className="px-4 py-3 font-mono text-gray-300">
+                    {fmtDay(p.date_created)}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-gray-300">
                     {fmtTime(p.date_created)}
                   </td>
                   <td className="px-4 py-3 text-gray-400 font-mono text-xs">
-                    #{p.order_id}
+                    <div>#{p.order_id || p.id}</div>
+                    {p.skus && p.skus.length > 0 && (
+                      <div className="mt-1 flex flex-col gap-0.5">
+                        {p.skus.map((item, idx) => (
+                          <PaymentSkuBadge
+                            key={idx}
+                            sku={item.sku}
+                            quantity={item.quantity}
+                            cost={item.cost ?? 0}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </td>
-                  <td className="px-4 py-3 text-gray-300 max-w-[120px] truncate">
-                    {p.buyer?.nickname ?? '—'}
-                  </td>
-                  <td className="px-4 py-3 text-gray-400 hidden md:table-cell">
-                    {fmtMethod(p.payment_method_id, p.payment_type)}
-                  </td>
-                  <td className="px-4 py-3 text-gray-400 hidden lg:table-cell text-center">
+                  <td className="px-4 py-3 text-gray-400 text-center font-mono">
                     {p.installments > 1 ? `${p.installments}x` : '1x'}
                   </td>
                   <td className="px-4 py-3 text-right text-gray-300 font-mono">
                     {fmtCurrency(p.total_paid_amount, p.currency_id)}
                   </td>
-                  <td className="px-4 py-3 text-right text-orange-400 font-mono hidden sm:table-cell">
-                    -{fmtCurrency(fee, p.currency_id)}
+                  <td className="px-4 py-3 text-right text-orange-400/90 font-mono">
+                    {p.sale_fees > 0 ? `-${fmtCurrency(p.sale_fees, p.currency_id)}` : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right text-orange-400/90 font-mono">
+                    {p.shipping_cost > 0 ? `-${fmtCurrency(p.shipping_cost, p.currency_id)}` : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right text-orange-400/90 font-mono">
+                    {p.taxes > 0 ? `-${fmtCurrency(p.taxes, p.currency_id)}` : '—'}
                   </td>
                   <td className="px-4 py-3 text-right font-semibold text-green-400 font-mono">
                     {fmtCurrency(p.net_received_amount, p.currency_id)}
                   </td>
-                  <td className="px-4 py-3 text-right text-blue-400 font-mono hidden sm:table-cell">
-                    {fmtCurrency(p.cumulative_total, p.currency_id)}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium ${STATUS_STYLES[p.status] ?? STATUS_STYLES.cancelled}`}
-                    >
-                      {STATUS_LABELS[p.status] ?? p.status}
-                    </span>
+                  <td className="px-4 py-3 text-right font-mono">
+                    {p.skus && p.skus.length > 0 ? (
+                      p.has_missing_cost ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-yellow-400 font-semibold bg-yellow-400/10 px-2 py-0.5 rounded border border-yellow-400/20">
+                          ⚠️ Falta costo
+                        </span>
+                      ) : (
+                        <div>
+                          <span className={`font-semibold text-sm ${(p.profit ?? 0) > 0 ? 'text-emerald-400' : 'text-gray-400'}`}>
+                            {fmtCurrency(p.profit ?? 0, p.currency_id)}
+                          </span>
+                          <div className="text-[10px] text-gray-500">
+                            {p.net_received_amount > 0 ? `${Math.round(((p.profit ?? 0) / p.net_received_amount) * 100)}%` : '—'}
+                          </div>
+                        </div>
+                      )
+                    ) : (
+                      <span className="text-gray-600">—</span>
+                    )}
                   </td>
                 </tr>
               )

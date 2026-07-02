@@ -19,6 +19,7 @@ interface Item {
   variant_label?: string
   sale_conditions?: string
   sku?: string
+  cost?: number
   brand?: string
   units_per_pack?: string
   financing?: string
@@ -36,6 +37,7 @@ interface Group {
   totalSold: number
   brand?: string
   sku?: string
+  cost?: number
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -86,49 +88,6 @@ function fmtPrice(amount: number) {
   }).format(amount)
 }
 
-function HealthBar({ value }: { value: number | null }) {
-  if (value === null) return <span className="text-gray-600">—</span>
-  const pct = Math.round(value * 100)
-  const color = pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-500'
-  return (
-    <div className="flex items-center gap-2">
-      <div className="w-16 bg-gray-700 rounded-full h-1.5">
-        <div className={`${color} h-1.5 rounded-full`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-xs text-gray-400">{pct}%</span>
-    </div>
-  )
-}
-
-function levenshtein(a: string, b: string): number {
-  const m = a.length, n = b.length
-  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
-    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
-  )
-  for (let i = 1; i <= m; i++)
-    for (let j = 1; j <= n; j++)
-      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
-  return dp[m][n]
-}
-
-function fuzzyMergeKeys(keys: string[]): Map<string, string> {
-  // Maps each key to its canonical (representative) key
-  const canonical = new Map<string, string>()
-  for (const key of keys) {
-    let found = false
-    for (const existing of canonical.values()) {
-      const threshold = Math.max(2, Math.floor(existing.length * 0.08))
-      if (levenshtein(key, existing) <= threshold) {
-        canonical.set(key, existing)
-        found = true
-        break
-      }
-    }
-    if (!found) canonical.set(key, key)
-  }
-  return canonical
-}
-
 function groupItems(items: Item[]): Group[] {
   const map = new Map<string, Item[]>()
   for (const item of items) {
@@ -150,16 +109,103 @@ function groupItems(items: Item[]): Group[] {
     totalSold: its.reduce((s, i) => s + i.sold_quantity, 0),
     brand: its.find((i) => i.brand)?.brand,
     sku: its.find((i) => i.sku)?.sku,
+    cost: its.find((i) => i.cost !== undefined)?.cost,
   }))
 }
 
-function GroupRow({ group }: { group: Group }) {
+function SkuCostInput({
+  sku,
+  initialCost,
+  onCostUpdated,
+}: {
+  sku: string
+  initialCost: number
+  onCostUpdated?: () => void
+}) {
+  const [cost, setCost] = useState<string>(initialCost ? String(initialCost) : '')
+  const [saving, setSaving] = useState(false)
+  const [success, setSuccess] = useState(false)
+
+  const handleSave = async () => {
+    const parsed = parseFloat(cost)
+    if (isNaN(parsed) || parsed < 0) {
+      if (cost === '') {
+        setSaving(true)
+        try {
+          const res = await fetch('/api/sku-costs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sku, cost: 0 }),
+          })
+          if (res.ok) {
+            setSuccess(true)
+            setTimeout(() => setSuccess(false), 2000)
+            onCostUpdated?.()
+          }
+        } catch (e) {
+          console.error(e)
+        } finally {
+          setSaving(false)
+        }
+      }
+      return
+    }
+
+    if (parsed === initialCost) return
+
+    setSaving(true)
+    try {
+      const res = await fetch('/api/sku-costs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sku, cost: parsed }),
+      })
+      if (res.ok) {
+        setSuccess(true)
+        setTimeout(() => setSuccess(false), 2000)
+        onCostUpdated?.()
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+      <span className="text-gray-500 text-xs font-mono">$</span>
+      <input
+        type="number"
+        value={cost}
+        onChange={(e) => setCost(e.target.value)}
+        onBlur={handleSave}
+        onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+        disabled={saving}
+        placeholder="0"
+        className="w-20 bg-gray-800 border border-gray-700 text-right text-gray-200 font-mono text-xs rounded px-1.5 py-1 focus:outline-none focus:border-yellow-400/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+      />
+      {saving && <span className="text-[10px] text-gray-500 animate-spin">↻</span>}
+      {success && <span className="text-[10px] text-green-400">✓</span>}
+    </div>
+  )
+}
+
+function GroupRow({ group, onCostUpdated }: { group: Group; onCostUpdated?: () => void }) {
   const [open, setOpen] = useState(false)
   const isVariant = group.items.length > 1
   const priceLabel =
     group.minPrice === group.maxPrice
       ? fmtPrice(group.minPrice)
       : `${fmtPrice(group.minPrice)} – ${fmtPrice(group.maxPrice)}`
+
+  const costs = group.items.map((i) => i.cost).filter((c) => c !== undefined && c !== null) as number[]
+  const costLabel =
+    costs.length === 0
+      ? '—'
+      : Math.min(...costs) === Math.max(...costs)
+      ? fmtPrice(Math.min(...costs))
+      : `${fmtPrice(Math.min(...costs))} – ${fmtPrice(Math.max(...costs))}`
 
   const statuses = [...new Set(group.items.map((i) => i.status))]
   const hasActive = statuses.includes('active')
@@ -179,7 +225,7 @@ function GroupRow({ group }: { group: Group }) {
             />
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <div>
+                <div className="min-w-0">
                   <a
                     href={group.permalink}
                     target="_blank"
@@ -194,7 +240,7 @@ function GroupRow({ group }: { group: Group }) {
                       <span className="text-xs text-gray-500">{group.brand}</span>
                     )}
                     {group.sku && (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-mono font-medium bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-mono font-medium bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 truncate max-w-[150px]">
                         SKU {group.sku}
                       </span>
                     )}
@@ -215,6 +261,13 @@ function GroupRow({ group }: { group: Group }) {
         </td>
         <td className="px-4 py-3 text-right font-mono font-semibold text-gray-200 text-sm">
           {priceLabel}
+        </td>
+        <td className="px-4 py-3 text-right text-sm">
+          {!isVariant && group.sku ? (
+            <SkuCostInput sku={group.sku} initialCost={group.cost ?? 0} onCostUpdated={onCostUpdated} />
+          ) : (
+            <span className="font-mono text-gray-400 text-sm">{costLabel}</span>
+          )}
         </td>
         <td className="px-4 py-3 text-right text-gray-300 hidden sm:table-cell">
           {group.totalStock}
@@ -285,6 +338,13 @@ function GroupRow({ group }: { group: Group }) {
           <td className="px-4 py-2 text-right font-mono text-sm text-gray-300">
             {fmtPrice(item.price)}
           </td>
+          <td className="px-4 py-2 text-right text-sm">
+            {item.sku ? (
+              <SkuCostInput sku={item.sku} initialCost={item.cost ?? 0} onCostUpdated={onCostUpdated} />
+            ) : (
+              <span className="text-gray-600 font-mono">—</span>
+            )}
+          </td>
           <td className="px-4 py-2 text-right text-gray-400 text-sm hidden sm:table-cell">
             {item.available_quantity}
           </td>
@@ -312,7 +372,7 @@ function GroupRow({ group }: { group: Group }) {
   )
 }
 
-export default function ListingsTable({ items }: { items: Item[] }) {
+export default function ListingsTable({ items, onCostUpdated }: { items: Item[]; onCostUpdated?: () => void }) {
   const [statusFilter, setStatusFilter] = useState('todos')
   const [categoryFilter, setCategoryFilter] = useState('todas')
   const [hideNoStock, setHideNoStock] = useState(true)
@@ -325,7 +385,6 @@ export default function ListingsTable({ items }: { items: Item[] }) {
     )
   }
 
-  // Stock per category to filter empty ones
   const stockByCategory = items.reduce((acc, i) => {
     const cat = i.category_name ?? ''
     acc[cat] = (acc[cat] ?? 0) + i.available_quantity
@@ -419,6 +478,7 @@ export default function ListingsTable({ items }: { items: Item[] }) {
               <tr className="border-b border-gray-800">
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Publicación</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Precio</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Costo</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Stock</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Vendidos</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Envío</th>
@@ -427,7 +487,7 @@ export default function ListingsTable({ items }: { items: Item[] }) {
             </thead>
             <tbody className="divide-y divide-gray-800">
               {groups.map((group) => (
-                <GroupRow key={group.key} group={group} />
+                <GroupRow key={group.key} group={group} onCostUpdated={onCostUpdated} />
               ))}
             </tbody>
           </table>

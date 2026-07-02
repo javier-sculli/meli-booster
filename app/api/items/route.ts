@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getValidAccessToken, getTokens } from '@/lib/tokens'
 import { getUserInfo } from '@/lib/meli'
+import redis from '@/lib/redis'
 
 const MELI_API_URL = 'https://api.mercadolibre.com'
 const ITEM_ATTRIBUTES = 'id,title,price,available_quantity,sold_quantity,status,thumbnail,permalink,health,condition,listing_type_id,category_id,shipping,seller_custom_field,attributes,sale_terms,tags'
@@ -117,9 +118,10 @@ export async function GET() {
     const tokenData = await getTokens()
     const userId = tokenData!.user_id
 
-    const [ids, userInfo] = await Promise.all([
+    const [ids, userInfo, rawCosts] = await Promise.all([
       getItemIds(accessToken, userId),
       getUserInfo(accessToken),
+      redis.hgetall('sku_costs').then((res) => res || {}),
     ])
 
     const items = await getItemDetails(accessToken, ids)
@@ -131,10 +133,11 @@ export async function GET() {
       const title = i.title as string
       const shipping = i.shipping as { free_shipping?: boolean; local_pick_up?: boolean } | undefined
       const attrs = i.attributes as Array<{ id: string; value_name?: string }> | undefined
-      const sku = (i.seller_custom_field as string | null) ?? extractAttrValue(attrs, 'SELLER_SKU')
+      const rawSku = (i.seller_custom_field as string | null) ?? extractAttrValue(attrs, 'SELLER_SKU')
+      const sku = rawSku || (i.id as string)
       const brand = extractAttrValue(attrs, 'BRAND')
       const unitsPack = extractAttrValue(attrs, 'UNITS_PER_PACK') ?? extractAttrValue(attrs, 'PACK_QUANTITY')
-      const groupKey = sku ? `sku:${sku}` : normalizeTitle(title)
+      const groupKey = rawSku ? `sku:${rawSku}` : normalizeTitle(title)
       const variantLabel = extractVariantLabel(title)
 
       const tags = i.tags as string[] | undefined ?? []
@@ -148,6 +151,7 @@ export async function GET() {
       const installmentsCampaign = saleTerms.find((t) => t.id === 'INSTALLMENTS_CAMPAIGN')?.value_name
       const financing = installmentsCampaign ?? (tags.includes('pcj-co-funded') ? 'pcj-co-funded' : null)
 
+      const cost = sku ? (parseFloat(rawCosts[sku]) || 0) : 0
       return {
         ...i,
         attributes: undefined,
@@ -158,7 +162,8 @@ export async function GET() {
         variant_label: variantLabel,
         sale_conditions: conditions.join(' · '),
         financing: financing ?? undefined,
-        sku: sku ?? undefined,
+        sku: sku || undefined,
+        cost: cost || undefined,
         brand: brand ?? undefined,
         units_per_pack: unitsPack ?? undefined,
       }

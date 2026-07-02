@@ -1,3 +1,5 @@
+import redis from './redis'
+
 const MELI_AUTH_URL = 'https://auth.mercadolibre.com.ar/authorization'
 const MELI_API_URL = 'https://api.mercadolibre.com'
 const MP_API_URL = 'https://api.mercadopago.com'
@@ -19,6 +21,9 @@ export interface MeliCollection {
   total_paid_amount: number
   net_received_amount: number
   marketplace_fee: number
+  sale_fees: number
+  shipping_cost: number
+  taxes: number
   currency_id: string
   reason: string
   order_id: number
@@ -43,7 +48,7 @@ interface MPPaymentRaw {
     net_received_amount: number
     total_paid_amount: number
   }
-  fee_details: Array<{ amount: number }>
+  fee_details: Array<{ amount: number; type?: string; fee_payer?: string }>
   currency_id: string
   description: string
   order?: { id: number }
@@ -65,6 +70,23 @@ interface MPPaymentsResponse {
 
 export function mpPaymentToCollection(p: MPPaymentRaw): MeliCollection {
   const fee = (p.fee_details ?? []).reduce((sum, f) => sum + (f?.amount ?? 0), 0)
+  
+  let saleFees = 0
+  let shippingCost = 0
+  let taxes = 0
+
+  for (const f of p.fee_details ?? []) {
+    const type = f.type || ''
+    const amount = f.amount || 0
+    if (type === 'shipping_fee' || type === 'shipping') {
+      shippingCost += amount
+    } else if (type.startsWith('tax_') || type.includes('tax') || type === 'withholding') {
+      taxes += amount
+    } else {
+      saleFees += amount
+    }
+  }
+
   return {
     id: p.id,
     status: p.status as MeliCollection['status'],
@@ -75,6 +97,9 @@ export function mpPaymentToCollection(p: MPPaymentRaw): MeliCollection {
     total_paid_amount: p.transaction_amount ?? 0,
     net_received_amount: p.transaction_details?.net_received_amount ?? (p.transaction_amount ?? 0) - fee,
     marketplace_fee: fee,
+    sale_fees: saleFees,
+    shipping_cost: shippingCost,
+    taxes: taxes,
     currency_id: p.currency_id ?? 'ARS',
     reason: p.description ?? '',
     order_id: p.order?.id ?? 0,
@@ -208,4 +233,61 @@ export async function getAllCollections(
     payments.push(...page.results.filter(Boolean).map(mpPaymentToCollection))
   }
   return payments
+}
+
+export interface OrderSkuInfo {
+  title: string
+  sku: string
+  quantity: number
+  unit_price: number
+}
+
+export async function getOrderSkus(accessToken: string, orderId: number): Promise<OrderSkuInfo[]> {
+  if (!orderId || orderId === 0) return []
+
+  const cacheKey = `order_skus:${orderId}`
+  try {
+    const cached = await redis.get(cacheKey)
+    if (cached) {
+      return JSON.parse(cached)
+    }
+  } catch (err) {
+    console.error('Redis read error for order_skus:', err)
+  }
+
+  try {
+    const res = await fetch(`${MELI_API_URL}/orders/${orderId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (!res.ok) {
+      if (res.status === 404) {
+        // Cache empty list to avoid repeated requests for non-existent/non-meli orders
+        await redis.setex(cacheKey, 86400 * 7, JSON.stringify([]))
+      }
+      return []
+    }
+    const orderData = await res.json()
+    const skusInfo: OrderSkuInfo[] = (orderData.order_items ?? []).map((oi: any) => {
+      const item = oi.item
+      let sku = item.seller_custom_field ?? ''
+      if (!sku && item.attributes) {
+        const attrSku = item.attributes.find((a: any) => a.id === 'SELLER_SKU')
+        if (attrSku) sku = attrSku.value_name ?? ''
+      }
+      if (!sku) sku = item.id ?? ''
+      return {
+        title: item.title ?? '',
+        sku: sku || 'SIN_SKU',
+        quantity: oi.quantity ?? 1,
+        unit_price: oi.unit_price ?? 0,
+      }
+    })
+
+    // Cache indefinitely since orders are static
+    await redis.set(cacheKey, JSON.stringify(skusInfo))
+    return skusInfo
+  } catch (err) {
+    console.error(`Failed to fetch order ${orderId}:`, err)
+    return []
+  }
 }
