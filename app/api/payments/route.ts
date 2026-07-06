@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
       costsMap[sku] = parseFloat(val) || 0
     }
 
-        const decoratedCollections = paymentsWithSkus.map((c) => {
+    const decoratedCollections = paymentsWithSkus.map((c) => {
       let totalCost = 0
       let hasMissingCost = false
       const skusWithCost = c.skus.map((item) => {
@@ -50,12 +50,13 @@ export async function GET(request: NextRequest) {
         return { ...item, cost: skuCost }
       })
       const profit = c.net_received_amount - totalCost
+      const isMissingCost = hasMissingCost || (c.order_id > 0 && c.skus.length === 0) || (c.skus.length > 0 && c.skus.some(s => !costsMap[s.sku] || costsMap[s.sku] === 0))
       return {
         ...c,
         skus: skusWithCost,
         total_cost: totalCost,
         profit,
-        has_missing_cost: hasMissingCost || (c.skus.length > 0 && c.skus.some(s => !costsMap[s.sku] || costsMap[s.sku] === 0)),
+        has_missing_cost: isMissingCost,
       }
     })
 
@@ -88,6 +89,22 @@ export async function GET(request: NextRequest) {
     const approvedCollections = result.filter(
       (c) => c.status === 'approved'
     )
+    const approvedWithCost = approvedCollections.filter(
+      (c) => !c.has_missing_cost
+    )
+    const totalCost = approvedWithCost.reduce(
+      (sum, c) => sum + (c.total_cost ?? 0),
+      0
+    )
+    const totalProfit = approvedWithCost.reduce(
+      (sum, c) => sum + (c.profit ?? 0),
+      0
+    )
+    const totalNetWithCost = approvedWithCost.reduce(
+      (sum, c) => sum + c.net_received_amount,
+      0
+    )
+
     const summary = {
       total_net: approvedCollections.reduce(
         (sum, c) => sum + c.net_received_amount,
@@ -101,14 +118,10 @@ export async function GET(request: NextRequest) {
         (sum, c) => sum + (c.marketplace_fee ?? 0),
         0
       ),
-      total_cost: approvedCollections.reduce(
-        (sum, c) => sum + (c.total_cost ?? 0),
-        0
-      ),
-      total_profit: approvedCollections.reduce(
-        (sum, c) => sum + (c.profit ?? 0),
-        0
-      ),
+      total_cost: totalCost,
+      total_profit: totalProfit,
+      net_with_cost: totalNetWithCost,
+      missing_costs_count: approvedCollections.filter((c) => c.has_missing_cost).length,
       count: approvedCollections.length,
       count_all: result.length,
       avg_ticket:

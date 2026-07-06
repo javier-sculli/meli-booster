@@ -6,6 +6,8 @@ interface Summary {
   total_fees: number
   total_cost?: number
   total_profit?: number
+  net_with_cost?: number
+  missing_costs_count?: number
   count: number
   count_all: number
   avg_ticket: number
@@ -49,6 +51,8 @@ export default function SummaryCards({ summary }: { summary: Summary }) {
     total_fees,
     total_cost = 0,
     total_profit = 0,
+    net_with_cost = 0,
+    missing_costs_count = 0,
     count,
     avg_ticket,
     pending_count,
@@ -56,7 +60,12 @@ export default function SummaryCards({ summary }: { summary: Summary }) {
     currency,
   } = summary
 
-  const margin = total_net > 0 ? Math.round((total_profit / total_net) * 100) : 0
+  const marginBase = missing_costs_count > 0 ? net_with_cost : total_net
+  const margin = marginBase > 0 ? Math.round((total_profit / marginBase) * 100) : 0
+
+  const subLabel = missing_costs_count > 0
+    ? `Margen: ${margin}% (Costo: ${fmt(total_cost, currency)}) - ⚠️ Excluye ${missing_costs_count} venta${missing_costs_count > 1 ? 's' : ''} sin costo`
+    : `Margen: ${margin}% (Costo: ${fmt(total_cost, currency)})`
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -69,7 +78,7 @@ export default function SummaryCards({ summary }: { summary: Summary }) {
       <Card
         label="Rentabilidad del día"
         value={fmt(total_profit, currency)}
-        sub={`Margen: ${margin}% (Costo: ${fmt(total_cost, currency)})`}
+        sub={subLabel}
         color="text-emerald-400 font-extrabold"
       />
       <Card
