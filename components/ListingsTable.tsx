@@ -434,6 +434,9 @@ function GroupRow({ group, onCostUpdated }: { group: Group; onCostUpdated?: () =
   )
 }
 
+type SortField = 'title' | 'price' | 'cost' | 'stock' | 'sold' | 'visits' | 'conversion' | 'quality' | 'status'
+type SortOrder = 'asc' | 'desc'
+
 export default function ListingsTable({
   items,
   onCostUpdated,
@@ -447,6 +450,9 @@ export default function ListingsTable({
   const [categoryFilter, setCategoryFilter] = useState('todas')
   const [hideNoStock, setHideNoStock] = useState(true)
   const [searchTerm, setSearchTerm] = useState(initialSearch || '')
+
+  const [sortField, setSortField] = useState<SortField>('sold')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
 
   useEffect(() => {
     if (initialSearch !== undefined) {
@@ -491,10 +497,82 @@ export default function ListingsTable({
 
   const groups = groupItems(filtered)
 
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortOrder(field === 'title' ? 'asc' : 'desc')
+    }
+  }
+
+  const sortedGroups = [...groups].sort((a, b) => {
+    let valA: any = 0
+    let valB: any = 0
+
+    switch (sortField) {
+      case 'title':
+        valA = a.title?.toLowerCase() ?? ''
+        valB = b.title?.toLowerCase() ?? ''
+        return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA)
+      case 'price':
+        valA = a.minPrice
+        valB = b.minPrice
+        break
+      case 'cost':
+        valA = a.cost ?? 0
+        valB = b.cost ?? 0
+        break
+      case 'stock':
+        valA = a.totalStock
+        valB = b.totalStock
+        break
+      case 'sold':
+        valA = a.totalSold
+        valB = b.totalSold
+        break
+      case 'visits':
+        valA = a.totalVisits
+        valB = b.totalVisits
+        break
+      case 'conversion':
+        valA = a.totalVisits > 0 ? a.totalSold / a.totalVisits : 0
+        valB = b.totalVisits > 0 ? b.totalSold / b.totalVisits : 0
+        break
+      case 'quality':
+        valA = a.avgHealth ?? 0
+        valB = b.avgHealth ?? 0
+        break
+      case 'status':
+        valA = a.items[0]?.status ?? ''
+        valB = b.items[0]?.status ?? ''
+        return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA)
+    }
+
+    if (valA < valB) return sortOrder === 'asc' ? -1 : 1
+    if (valA > valB) return sortOrder === 'asc' ? 1 : -1
+    return 0
+  })
+
   const statusCounts = STATUS_OPTIONS.reduce((acc, s) => {
     acc[s] = s === 'todos' ? items.length : items.filter((i) => i.status === s).length
     return acc
   }, {} as Record<string, number>)
+
+  const renderHeader = (field: SortField, label: string, alignClass = 'text-right', hiddenClass = '') => {
+    const isSorted = sortField === field
+    return (
+      <th
+        onClick={() => handleSort(field)}
+        className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-300 transition-colors select-none ${alignClass} ${hiddenClass}`}
+      >
+        <span className="inline-flex items-center gap-1">
+          {label}
+          {isSorted && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
+        </span>
+      </th>
+    )
+  }
 
   return (
     <div className="space-y-3">
@@ -570,20 +648,19 @@ export default function ListingsTable({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-800">
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Publicación</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Precio</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Costo</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Stock</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Vendidos</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Visitas</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Conv.</th>
-                <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Calidad</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Envío</th>
-                <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                {renderHeader('title', 'Publicación', 'text-left')}
+                {renderHeader('price', 'Precio', 'text-right')}
+                {renderHeader('cost', 'Costo', 'text-right')}
+                {renderHeader('stock', 'Stock', 'text-right', 'hidden sm:table-cell')}
+                {renderHeader('sold', 'Vendidos', 'text-right', 'hidden sm:table-cell')}
+                {renderHeader('visits', 'Visitas', 'text-right', 'hidden md:table-cell')}
+                {renderHeader('conversion', 'Conv.', 'text-right', 'hidden md:table-cell')}
+                {renderHeader('quality', 'Calidad', 'text-center', 'hidden lg:table-cell')}
+                {renderHeader('status', 'Estado', 'text-center')}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
-              {groups.map((group) => (
+              {sortedGroups.map((group) => (
                 <GroupRow key={group.key} group={group} onCostUpdated={onCostUpdated} />
               ))}
             </tbody>
