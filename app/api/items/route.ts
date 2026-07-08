@@ -108,8 +108,13 @@ async function getCategoryNames(accessToken: string, categoryIds: string[]): Pro
   return Object.fromEntries(results)
 }
 
-async function getSingleItemVisits(accessToken: string, itemId: string): Promise<number> {
-  const cacheKey = `visits:${itemId}`
+async function getSingleItemVisits(
+  accessToken: string,
+  itemId: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<number> {
+  const cacheKey = dateFrom && dateTo ? `visits:${itemId}:${dateFrom}:${dateTo}` : `visits:${itemId}`
   try {
     const cached = await redis.get(cacheKey)
     if (cached !== null) {
@@ -120,12 +125,16 @@ async function getSingleItemVisits(accessToken: string, itemId: string): Promise
   }
 
   try {
-    const res = await fetch(`https://api.mercadolibre.com/visits/items?ids=${itemId}`, {
+    const url = dateFrom && dateTo
+      ? `https://api.mercadolibre.com/items/${itemId}/visits?date_from=${dateFrom}&date_to=${dateTo}`
+      : `https://api.mercadolibre.com/visits/items?ids=${itemId}`
+
+    const res = await fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
     if (res.ok) {
       const data = await res.json()
-      const count = Number(data[itemId]) || 0
+      const count = dateFrom && dateTo ? (Number(data.total_visits) || 0) : (Number(data[itemId]) || 0)
       await redis.setex(cacheKey, 7200, String(count)) // Cache for 2 hours
       return count
     }
@@ -136,7 +145,12 @@ async function getSingleItemVisits(accessToken: string, itemId: string): Promise
   return 0
 }
 
-async function getItemVisits(accessToken: string, ids: string[]): Promise<Record<string, number>> {
+async function getItemVisits(
+  accessToken: string,
+  ids: string[],
+  dateFrom?: string,
+  dateTo?: string
+): Promise<Record<string, number>> {
   if (ids.length === 0) return {}
   const visitsMap: Record<string, number> = {}
   const chunkSize = 25
@@ -144,7 +158,7 @@ async function getItemVisits(accessToken: string, ids: string[]): Promise<Record
     const chunk = ids.slice(i, i + chunkSize)
     const results = await Promise.all(
       chunk.map(async (id) => {
-        const count = await getSingleItemVisits(accessToken, id)
+        const count = await getSingleItemVisits(accessToken, id, dateFrom, dateTo)
         return { id, count }
       })
     )
@@ -158,13 +172,91 @@ async function getItemVisits(accessToken: string, ids: string[]): Promise<Record
   return visitsMap
 }
 
-export async function GET() {
+async function getSalesQuantityByItem(
+  accessToken: string,
+  userId: number,
+  dateFrom: string,
+  dateTo: string
+): Promise<Record<string, number>> {
+  const salesMap: Record<string, number> = {}
+  let offset = 0
+  const limit = 50
+  let hasMore = true
+
+  while (hasMore) {
+    const url = `https://api.mercadolibre.com/orders/search?seller=${userId}&date_created_from=${dateFrom}T00:00:00.000Z&date_created_to=${dateTo}T23:59:59.000Z&limit=${limit}&offset=${offset}`
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    })
+
+    if (!res.ok) {
+      break
+    }
+
+    const data = await res.json()
+    const results = data.results || []
+
+    for (const order of results) {
+      const items = order.order_items || []
+      for (const item of items) {
+        const itemId = item.item?.id
+        const qty = Number(item.quantity) || 0
+        if (itemId) {
+          salesMap[itemId] = (salesMap[itemId] || 0) + qty
+        }
+      }
+    }
+
+    if (results.length < limit) {
+      hasMore = false
+    } else {
+      offset += limit
+      if (offset >= 500) {
+        hasMore = false
+      }
+    }
+  }
+
+  return salesMap
+}
+
+async function getCachedSalesQuantityByItem(
+  accessToken: string,
+  userId: number,
+  dateFrom: string,
+  dateTo: string
+): Promise<Record<string, number>> {
+  const cacheKey = `sales_by_item:${userId}:${dateFrom}:${dateTo}`
+  try {
+    const cached = await redis.get(cacheKey)
+    if (cached !== null) {
+      return JSON.parse(cached)
+    }
+  } catch (err) {
+    console.error('Redis error reading sales by item:', err)
+  }
+
+  const salesMap = await getSalesQuantityByItem(accessToken, userId, dateFrom, dateTo)
+
+  try {
+    await redis.setex(cacheKey, 7200, JSON.stringify(salesMap))
+  } catch (err) {
+    console.error('Redis error writing sales by item:', err)
+  }
+
+  return salesMap
+}
+
+export async function GET(request: Request) {
   const accessToken = await getValidAccessToken()
   if (!accessToken) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   try {
+    const { searchParams } = new URL(request.url)
+    const period = searchParams.get('period') || '30d'
+
     const tokenData = await getTokens()
     const userId = tokenData!.user_id
 
@@ -174,9 +266,24 @@ export async function GET() {
       redis.hgetall('sku_costs').then((res) => res || {}),
     ])
 
-    const [items, visitsMap] = await Promise.all([
+    let dateFrom: string | undefined
+    let dateTo: string | undefined
+
+    if (period !== 'hist') {
+      const days = period === '7d' ? 7 : period === '60d' ? 60 : 30
+      const toDate = new Date()
+      const fromDate = new Date()
+      fromDate.setDate(toDate.getDate() - days)
+      dateTo = toDate.toISOString().split('T')[0]
+      dateFrom = fromDate.toISOString().split('T')[0]
+    }
+
+    const [items, visitsMap, salesMap] = await Promise.all([
       getItemDetails(accessToken, ids),
-      getItemVisits(accessToken, ids),
+      getItemVisits(accessToken, ids, dateFrom, dateTo),
+      dateFrom && dateTo
+        ? getCachedSalesQuantityByItem(accessToken, userId, dateFrom, dateTo)
+        : Promise.resolve({} as Record<string, number>),
     ])
 
     const categoryIds = items.map((i) => i.category_id as string).filter(Boolean)
@@ -207,6 +314,7 @@ export async function GET() {
 
       const cost = sku ? (parseFloat(rawCosts[sku]) || 0) : 0
       const visits = visitsMap[i.id as string] ?? 0
+      const sold_quantity = period === 'hist' ? (Number(i.sold_quantity) || 0) : (salesMap[i.id as string] || 0)
 
       if (i.id && sku && sku !== i.id) {
         itemSkuMappings[i.id as string] = sku
@@ -227,6 +335,7 @@ export async function GET() {
         brand: brand ?? undefined,
         units_per_pack: unitsPack ?? undefined,
         visits,
+        sold_quantity,
       }
     })
 

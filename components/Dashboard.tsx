@@ -133,6 +133,7 @@ export default function Dashboard() {
   const [dateFrom, setDateFrom] = useState(getARDate(0))
   const [dateTo, setDateTo] = useState(getARDate(0))
   const [listingsSearch, setListingsSearch] = useState('')
+  const [itemsPeriod, setItemsPeriod] = useState<'7d' | '30d' | '60d' | 'hist'>('30d')
 
   const fetchPayments = useCallback(async (isManual = false, from?: string, to?: string) => {
     if (isManual) setRefreshing(true)
@@ -170,11 +171,11 @@ export default function Dashboard() {
     fetchPayments(false, from, to)
   }, [fetchPayments])
 
-  const fetchItems = useCallback(async () => {
+  const fetchItems = useCallback(async (period = '30d') => {
     setItemsLoading(true)
     setItemsError(null)
     try {
-      const res = await fetch('/api/items', { cache: 'no-store' })
+      const res = await fetch(`/api/items?period=${period}`, { cache: 'no-store' })
       if (!res.ok) throw new Error('Error al obtener las publicaciones')
       setItemsData(await res.json())
     } catch (err) {
@@ -214,8 +215,13 @@ export default function Dashboard() {
 
   const handleCostUpdated = useCallback(() => {
     fetchPayments()
-    fetchItems()
-  }, [fetchPayments, fetchItems])
+    fetchItems(itemsPeriod)
+  }, [fetchPayments, fetchItems, itemsPeriod])
+
+  const handlePeriodChange = useCallback((period: '7d' | '30d' | '60d' | 'hist') => {
+    setItemsPeriod(period)
+    fetchItems(period)
+  }, [fetchItems])
 
   const handleSkuClick = useCallback((sku: string) => {
     setTab('publicaciones')
@@ -241,9 +247,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (tab === 'publicaciones' && !itemsData && !itemsLoading) {
-      fetchItems()
+      fetchItems(itemsPeriod)
     }
-  }, [tab, itemsData, itemsLoading, fetchItems])
+  }, [tab, itemsData, itemsLoading, fetchItems, itemsPeriod])
 
   // Auto-refresh timer (only when viewing today)
   useEffect(() => {
@@ -516,21 +522,47 @@ export default function Dashboard() {
           <>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">Publicaciones</h2>
-              <button
-                onClick={fetchItems}
-                disabled={itemsLoading}
-                className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors text-gray-300"
-              >
-                <span className={itemsLoading ? 'animate-spin inline-block' : ''}>↻</span>
-                {itemsLoading ? 'Cargando...' : 'Actualizar'}
-              </button>
+              
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1 bg-gray-900 border border-gray-800 rounded-lg p-0.5">
+                  {(
+                    [
+                      { key: '7d', label: '7 días' },
+                      { key: '30d', label: '30 días' },
+                      { key: '60d', label: '60 días' },
+                      { key: 'hist', label: 'Histórico' },
+                    ] as const
+                  ).map((p) => (
+                    <button
+                      key={p.key}
+                      onClick={() => handlePeriodChange(p.key)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                        itemsPeriod === p.key
+                          ? 'bg-yellow-400 text-gray-900 shadow'
+                          : 'text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => fetchItems(itemsPeriod)}
+                  disabled={itemsLoading}
+                  className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors text-gray-300"
+                >
+                  <span className={itemsLoading ? 'animate-spin inline-block' : ''}>↻</span>
+                  {itemsLoading ? 'Cargando...' : 'Actualizar'}
+                </button>
+              </div>
             </div>
 
             {itemsError && (
               <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400 flex items-center gap-2">
                 <span>⚠</span>
                 <span>{itemsError}</span>
-                <button onClick={fetchItems} className="ml-auto text-xs underline hover:no-underline">Reintentar</button>
+                <button onClick={() => fetchItems(itemsPeriod)} className="ml-auto text-xs underline hover:no-underline">Reintentar</button>
               </div>
             )}
 

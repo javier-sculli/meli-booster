@@ -121,6 +121,24 @@ function groupItems(items: Item[]): Group[] {
   })
 }
 
+function ConversionCell({ sold, visits }: { sold: number; visits: number }) {
+  const rate = visits > 0 ? (sold / visits) * 100 : 0
+  let colorClass = 'text-gray-400'
+  if (rate >= 3) {
+    colorClass = 'text-green-400 font-semibold'
+  } else if (rate >= 1) {
+    colorClass = 'text-gray-200'
+  } else if (rate > 0 && visits > 100) {
+    colorClass = 'text-yellow-500/80 font-medium'
+  }
+
+  return (
+    <span className={`font-mono text-sm ${colorClass}`}>
+      {rate.toFixed(1)}%
+    </span>
+  )
+}
+
 function QualityCell({ health }: { health: number | null }) {
   if (health === null || health === undefined) return <span className="text-gray-600 font-mono">—</span>
   const pct = Math.round(health * 100)
@@ -304,6 +322,9 @@ function GroupRow({ group, onCostUpdated }: { group: Group; onCostUpdated?: () =
         <td className="px-4 py-3 text-right text-gray-300 hidden md:table-cell font-mono">
           {group.totalVisits.toLocaleString('es-AR')}
         </td>
+        <td className="px-4 py-3 text-right hidden md:table-cell">
+          <ConversionCell sold={group.totalSold} visits={group.totalVisits} />
+        </td>
         <td className="px-4 py-3 text-center hidden lg:table-cell">
           <QualityCell health={group.avgHealth} />
         </td>
@@ -386,6 +407,9 @@ function GroupRow({ group, onCostUpdated }: { group: Group; onCostUpdated?: () =
           <td className="px-4 py-2 text-right text-gray-400 text-sm hidden md:table-cell font-mono">
             {(item.visits ?? 0).toLocaleString('es-AR')}
           </td>
+          <td className="px-4 py-2 text-right hidden md:table-cell">
+            <ConversionCell sold={item.sold_quantity} visits={item.visits ?? 0} />
+          </td>
           <td className="px-4 py-2 text-center hidden lg:table-cell">
             <QualityCell health={item.health} />
           </td>
@@ -410,7 +434,7 @@ function GroupRow({ group, onCostUpdated }: { group: Group; onCostUpdated?: () =
   )
 }
 
-type SortField = 'title' | 'price' | 'cost' | 'stock' | 'sold' | 'visits' | 'quality' | 'status'
+type SortField = 'title' | 'price' | 'cost' | 'stock' | 'sold' | 'visits' | 'conversion' | 'quality' | 'status'
 type SortOrder = 'desc' | 'asc'
 
 export default function ListingsTable({
@@ -510,6 +534,10 @@ export default function ListingsTable({
       case 'visits':
         valA = a.totalVisits
         valB = b.totalVisits
+        break
+      case 'conversion':
+        valA = a.totalVisits > 0 ? a.totalSold / a.totalVisits : 0
+        valB = b.totalVisits > 0 ? b.totalSold / b.totalVisits : 0
         break
       case 'quality':
         valA = a.avgHealth ?? 0
@@ -624,8 +652,9 @@ export default function ListingsTable({
                 {renderHeader('price', 'Precio', 'text-right')}
                 {renderHeader('cost', 'Costo', 'text-right')}
                 {renderHeader('stock', 'Stock', 'text-right', 'hidden sm:table-cell')}
-                {renderHeader('sold', 'Vendidos (Hist.)', 'text-right', 'hidden sm:table-cell')}
-                {renderHeader('visits', 'Visitas (30d)', 'text-right', 'hidden md:table-cell')}
+                {renderHeader('sold', 'Vendidos', 'text-right', 'hidden sm:table-cell')}
+                {renderHeader('visits', 'Visitas', 'text-right', 'hidden md:table-cell')}
+                {renderHeader('conversion', 'Conv.', 'text-right', 'hidden md:table-cell')}
                 {renderHeader('quality', 'Calidad', 'text-center', 'hidden lg:table-cell')}
                 {renderHeader('status', 'Estado', 'text-center')}
               </tr>
