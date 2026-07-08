@@ -108,31 +108,53 @@ async function getCategoryNames(accessToken: string, categoryIds: string[]): Pro
   return Object.fromEntries(results)
 }
 
-async function getItemVisits(accessToken: string, ids: string[]): Promise<Record<string, number>> {
-  if (ids.length === 0) return {}
-  const chunks: string[][] = []
-  for (let i = 0; i < ids.length; i += 50) {
-    chunks.push(ids.slice(i, i + 50))
+async function getSingleItemVisits(accessToken: string, itemId: string): Promise<number> {
+  const cacheKey = `visits:${itemId}`
+  try {
+    const cached = await redis.get(cacheKey)
+    if (cached !== null) {
+      return Number(cached)
+    }
+  } catch (err) {
+    console.error('Redis error for item visits:', err)
   }
 
-  const results = await Promise.all(
-    chunks.map((chunk) =>
-      fetch(`${MELI_API_URL}/visits/items?ids=${chunk.join(',')}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      })
-        .then((r) => r.json())
-        .catch(() => ({}))
-    )
-  )
-
-  const visitsMap: Record<string, number> = {}
-  results.forEach((res) => {
-    if (res && typeof res === 'object') {
-      for (const [id, count] of Object.entries(res)) {
-        visitsMap[id] = Number(count) || 0
-      }
+  try {
+    const res = await fetch(`https://api.mercadolibre.com/visits/items?ids=${itemId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (res.ok) {
+      const data = await res.json()
+      const count = Number(data[itemId]) || 0
+      await redis.setex(cacheKey, 7200, String(count)) // Cache for 2 hours
+      return count
     }
-  })
+  } catch (err) {
+    console.error(`Failed to fetch visits for item ${itemId}:`, err)
+  }
+
+  return 0
+}
+
+async function getItemVisits(accessToken: string, ids: string[]): Promise<Record<string, number>> {
+  if (ids.length === 0) return {}
+  const visitsMap: Record<string, number> = {}
+  const chunkSize = 25
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize)
+    const results = await Promise.all(
+      chunk.map(async (id) => {
+        const count = await getSingleItemVisits(accessToken, id)
+        return { id, count }
+      })
+    )
+    for (const r of results) {
+      visitsMap[r.id] = r.count
+    }
+    if (i + chunkSize < ids.length) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+  }
   return visitsMap
 }
 
