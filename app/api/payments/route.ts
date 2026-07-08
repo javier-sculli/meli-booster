@@ -22,14 +22,15 @@ export async function GET(request: NextRequest) {
     ])
 
     // Fetch order SKUs in parallel and fetch costs from Redis
-    const [paymentsWithSkus, rawCosts] = await Promise.all([
+    const [paymentsWithSkus, rawCosts, itemToSku] = await Promise.all([
       Promise.all(
         collections.map(async (c) => {
           const skus = c.order_id ? await getOrderSkus(accessToken, c.order_id) : []
           return { ...c, skus }
         })
       ),
-      redis.hgetall('sku_costs').then(res => res || {})
+      redis.hgetall('sku_costs').then(res => res || {}),
+      redis.hgetall('item_to_sku').then(res => res || {})
     ])
 
     const costsMap: Record<string, number> = {}
@@ -41,7 +42,8 @@ export async function GET(request: NextRequest) {
       let totalCost = 0
       let hasMissingCost = false
       const skusWithCost = c.skus.map((item) => {
-        const skuCost = costsMap[item.sku] ?? 0
+        const customSku = itemToSku[item.sku]
+        const skuCost = costsMap[item.sku] ?? (customSku ? costsMap[customSku] : 0) ?? 0
         if (skuCost === 0) {
           hasMissingCost = true
         } else {
@@ -50,7 +52,7 @@ export async function GET(request: NextRequest) {
         return { ...item, cost: skuCost }
       })
       const profit = c.net_received_amount - totalCost
-      const isMissingCost = hasMissingCost || (c.order_id > 0 && c.skus.length === 0) || (c.skus.length > 0 && c.skus.some(s => !costsMap[s.sku] || costsMap[s.sku] === 0))
+      const isMissingCost = hasMissingCost || (c.order_id > 0 && c.skus.length === 0)
       return {
         ...c,
         skus: skusWithCost,

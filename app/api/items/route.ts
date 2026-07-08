@@ -129,6 +129,7 @@ export async function GET() {
     const categoryIds = items.map((i) => i.category_id as string).filter(Boolean)
     const categoryNames = await getCategoryNames(accessToken, categoryIds)
 
+    const itemSkuMappings: Record<string, string> = {}
     const itemsWithCategory = items.map((i) => {
       const title = i.title as string
       const shipping = i.shipping as { free_shipping?: boolean; local_pick_up?: boolean } | undefined
@@ -152,6 +153,11 @@ export async function GET() {
       const financing = installmentsCampaign ?? (tags.includes('pcj-co-funded') ? 'pcj-co-funded' : null)
 
       const cost = sku ? (parseFloat(rawCosts[sku]) || 0) : 0
+
+      if (i.id && sku && sku !== i.id) {
+        itemSkuMappings[i.id as string] = sku
+      }
+
       return {
         ...i,
         attributes: undefined,
@@ -168,6 +174,10 @@ export async function GET() {
         units_per_pack: unitsPack ?? undefined,
       }
     })
+
+    if (Object.keys(itemSkuMappings).length > 0) {
+      await redis.hset('item_to_sku', itemSkuMappings)
+    }
 
     return NextResponse.json({
       items: itemsWithCategory,

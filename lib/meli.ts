@@ -267,21 +267,40 @@ export async function getOrderSkus(accessToken: string, orderId: number): Promis
       return []
     }
     const orderData = await res.json()
-    const skusInfo: OrderSkuInfo[] = (orderData.order_items ?? []).map((oi: any) => {
-      const item = oi.item
-      let sku = item.seller_custom_field ?? ''
-      if (!sku && item.attributes) {
-        const attrSku = item.attributes.find((a: any) => a.id === 'SELLER_SKU')
-        if (attrSku) sku = attrSku.value_name ?? ''
-      }
-      if (!sku) sku = item.id ?? ''
-      return {
-        title: item.title ?? '',
-        sku: sku || 'SIN_SKU',
-        quantity: oi.quantity ?? 1,
-        unit_price: oi.unit_price ?? 0,
-      }
-    })
+    const skusInfo: OrderSkuInfo[] = await Promise.all(
+      (orderData.order_items ?? []).map(async (oi: any) => {
+        const item = oi.item
+        let sku = item.seller_custom_field ?? ''
+        if (!sku && item.attributes) {
+          const attrSku = item.attributes.find((a: any) => a.id === 'SELLER_SKU')
+          if (attrSku) sku = attrSku.value_name ?? ''
+        }
+        if (!sku && item.id) {
+          try {
+            const itemRes = await fetch(`${MELI_API_URL}/items/${item.id}`, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            })
+            if (itemRes.ok) {
+              const itemData = await itemRes.json()
+              sku = itemData.seller_custom_field ?? ''
+              if (!sku && itemData.attributes) {
+                const attrSku = itemData.attributes.find((a: any) => a.id === 'SELLER_SKU')
+                if (attrSku) sku = attrSku.value_name ?? ''
+              }
+            }
+          } catch (itemErr) {
+            console.error(`Failed to fetch item details for ${item.id} inside getOrderSkus:`, itemErr)
+          }
+        }
+        if (!sku) sku = item.id ?? ''
+        return {
+          title: item.title ?? '',
+          sku: sku || 'SIN_SKU',
+          quantity: oi.quantity ?? 1,
+          unit_price: oi.unit_price ?? 0,
+        }
+      })
+    )
 
     // Cache indefinitely since orders are static
     await redis.set(cacheKey, JSON.stringify(skusInfo))
