@@ -188,7 +188,7 @@ async function getSalesQuantityByItem(
   let hasMore = true
 
   while (hasMore) {
-    const url = `https://api.mercadolibre.com/orders/search?seller=${userId}&date_created_from=${dateFrom}T00:00:00.000Z&date_created_to=${dateTo}T23:59:59.000Z&limit=${limit}&offset=${offset}`
+    const url = `https://api.mercadolibre.com/orders/search?seller=${userId}&order.date_created.from=${dateFrom}T00:00:00.000Z&order.date_created.to=${dateTo}T23:59:59.000Z&limit=${limit}&offset=${offset}`
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` }
     })
@@ -215,7 +215,7 @@ async function getSalesQuantityByItem(
       hasMore = false
     } else {
       offset += limit
-      if (offset >= 500) {
+      if (offset >= 2000) {
         hasMore = false
       }
     }
