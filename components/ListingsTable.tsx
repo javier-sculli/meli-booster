@@ -23,6 +23,7 @@ interface Item {
   brand?: string
   units_per_pack?: string
   financing?: string
+  visits?: number
 }
 
 interface Group {
@@ -38,6 +39,8 @@ interface Group {
   brand?: string
   sku?: string
   cost?: number
+  totalVisits: number
+  avgHealth: number | null
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -97,20 +100,61 @@ function groupItems(items: Item[]): Group[] {
   }
   const merged = map
 
-  return Array.from(merged.entries()).map(([key, its]) => ({
-    key,
-    items: its,
-    thumbnail: its[0].thumbnail,
-    title: its[0].title,
-    permalink: its[0].permalink,
-    minPrice: Math.min(...its.map((i) => i.price)),
-    maxPrice: Math.max(...its.map((i) => i.price)),
-    totalStock: its.reduce((s, i) => s + i.available_quantity, 0),
-    totalSold: its.reduce((s, i) => s + i.sold_quantity, 0),
-    brand: its.find((i) => i.brand)?.brand,
-    sku: its.find((i) => i.sku)?.sku,
-    cost: its.find((i) => i.cost !== undefined)?.cost,
-  }))
+  return Array.from(merged.entries()).map(([key, its]) => {
+    const healths = its.map((i) => i.health).filter((h) => h !== null && h !== undefined) as number[]
+    return {
+      key,
+      items: its,
+      thumbnail: its[0].thumbnail,
+      title: its[0].title,
+      permalink: its[0].permalink,
+      minPrice: Math.min(...its.map((i) => i.price)),
+      maxPrice: Math.max(...its.map((i) => i.price)),
+      totalStock: its.reduce((s, i) => s + i.available_quantity, 0),
+      totalSold: its.reduce((s, i) => s + i.sold_quantity, 0),
+      brand: its.find((i) => i.brand)?.brand,
+      sku: its.find((i) => i.sku)?.sku,
+      cost: its.find((i) => i.cost !== undefined)?.cost,
+      totalVisits: its.reduce((s, i) => s + (i.visits ?? 0), 0),
+      avgHealth: healths.length > 0 ? healths.reduce((s, h) => s + h, 0) / healths.length : null,
+    }
+  })
+}
+
+function ConversionCell({ sold, visits }: { sold: number; visits: number }) {
+  const rate = visits > 0 ? (sold / visits) * 100 : 0
+  let colorClass = 'text-gray-400'
+  if (rate >= 3) {
+    colorClass = 'text-green-400 font-semibold'
+  } else if (rate >= 1) {
+    colorClass = 'text-gray-200'
+  } else if (rate > 0 && visits > 100) {
+    colorClass = 'text-yellow-500/80 font-medium'
+  }
+
+  return (
+    <span className={`font-mono text-sm ${colorClass}`}>
+      {rate.toFixed(1)}%
+    </span>
+  )
+}
+
+function QualityCell({ health }: { health: number | null }) {
+  if (health === null || health === undefined) return <span className="text-gray-600 font-mono">—</span>
+  const pct = Math.round(health * 100)
+  
+  let badgeStyle = 'bg-red-500/10 text-red-400 border-red-500/20'
+  if (pct >= 80) {
+    badgeStyle = 'bg-green-500/10 text-green-400 border-green-500/20'
+  } else if (pct >= 50) {
+    badgeStyle = 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+  }
+
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded border text-xs font-mono font-medium ${badgeStyle}`}>
+      {pct}%
+    </span>
+  )
 }
 
 function SkuCostInput({
@@ -275,6 +319,15 @@ function GroupRow({ group, onCostUpdated }: { group: Group; onCostUpdated?: () =
         <td className="px-4 py-3 text-right text-gray-300 hidden sm:table-cell">
           {group.totalSold}
         </td>
+        <td className="px-4 py-3 text-right text-gray-300 hidden md:table-cell font-mono">
+          {group.totalVisits.toLocaleString('es-AR')}
+        </td>
+        <td className="px-4 py-3 text-right hidden md:table-cell">
+          <ConversionCell sold={group.totalSold} visits={group.totalVisits} />
+        </td>
+        <td className="px-4 py-3 text-center hidden lg:table-cell">
+          <QualityCell health={group.avgHealth} />
+        </td>
         <td className="px-4 py-3 hidden md:table-cell">
           <div className="flex flex-col gap-1">
             {!isVariant && group.items[0]?.sale_conditions && (
@@ -350,6 +403,15 @@ function GroupRow({ group, onCostUpdated }: { group: Group; onCostUpdated?: () =
           </td>
           <td className="px-4 py-2 text-right text-gray-400 text-sm hidden sm:table-cell">
             {item.sold_quantity}
+          </td>
+          <td className="px-4 py-2 text-right text-gray-400 text-sm hidden md:table-cell font-mono">
+            {(item.visits ?? 0).toLocaleString('es-AR')}
+          </td>
+          <td className="px-4 py-2 text-right hidden md:table-cell">
+            <ConversionCell sold={item.sold_quantity} visits={item.visits ?? 0} />
+          </td>
+          <td className="px-4 py-2 text-center hidden lg:table-cell">
+            <QualityCell health={item.health} />
           </td>
           <td className="px-4 py-2 hidden md:table-cell">
             <div className="flex flex-col gap-1">
@@ -513,6 +575,9 @@ export default function ListingsTable({
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Costo</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Stock</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Vendidos</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Visitas</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Conv.</th>
+                <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Calidad</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Envío</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
               </tr>
