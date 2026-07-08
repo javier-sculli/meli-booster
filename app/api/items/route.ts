@@ -108,6 +108,34 @@ async function getCategoryNames(accessToken: string, categoryIds: string[]): Pro
   return Object.fromEntries(results)
 }
 
+async function getItemVisits(accessToken: string, ids: string[]): Promise<Record<string, number>> {
+  if (ids.length === 0) return {}
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += 50) {
+    chunks.push(ids.slice(i, i + 50))
+  }
+
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      fetch(`${MELI_API_URL}/visits/items?ids=${chunk.join(',')}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+        .then((r) => r.json())
+        .catch(() => ({}))
+    )
+  )
+
+  const visitsMap: Record<string, number> = {}
+  results.forEach((res) => {
+    if (res && typeof res === 'object') {
+      for (const [id, count] of Object.entries(res)) {
+        visitsMap[id] = Number(count) || 0
+      }
+    }
+  })
+  return visitsMap
+}
+
 export async function GET() {
   const accessToken = await getValidAccessToken()
   if (!accessToken) {
@@ -124,7 +152,10 @@ export async function GET() {
       redis.hgetall('sku_costs').then((res) => res || {}),
     ])
 
-    const items = await getItemDetails(accessToken, ids)
+    const [items, visitsMap] = await Promise.all([
+      getItemDetails(accessToken, ids),
+      getItemVisits(accessToken, ids),
+    ])
 
     const categoryIds = items.map((i) => i.category_id as string).filter(Boolean)
     const categoryNames = await getCategoryNames(accessToken, categoryIds)
@@ -153,6 +184,7 @@ export async function GET() {
       const financing = installmentsCampaign ?? (tags.includes('pcj-co-funded') ? 'pcj-co-funded' : null)
 
       const cost = sku ? (parseFloat(rawCosts[sku]) || 0) : 0
+      const visits = visitsMap[i.id as string] ?? 0
 
       if (i.id && sku && sku !== i.id) {
         itemSkuMappings[i.id as string] = sku
@@ -172,6 +204,7 @@ export async function GET() {
         cost: cost || undefined,
         brand: brand ?? undefined,
         units_per_pack: unitsPack ?? undefined,
+        visits,
       }
     })
 
