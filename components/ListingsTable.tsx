@@ -122,7 +122,19 @@ function groupItems(items: Item[]): Group[] {
 }
 
 function ConversionCell({ sold, visits }: { sold: number; visits: number }) {
+  if (sold > 0 && visits === 0) {
+    return (
+      <span className="font-mono text-sm text-green-400 font-semibold cursor-help" title="Ventas sin visitas registradas (ej. ventas por Catálogo o compras en lote)">
+        &gt;100%
+      </span>
+    )
+  }
+
   const rate = visits > 0 ? (sold / visits) * 100 : 0
+  if (rate === 0) {
+    return <span className="font-mono text-sm text-gray-500">0.0%</span>
+  }
+
   let colorClass = 'text-gray-400'
   if (rate >= 3) {
     colorClass = 'text-green-400 font-semibold'
@@ -130,6 +142,14 @@ function ConversionCell({ sold, visits }: { sold: number; visits: number }) {
     colorClass = 'text-gray-200'
   } else if (rate > 0 && visits > 100) {
     colorClass = 'text-yellow-500/80 font-medium'
+  }
+
+  if (rate > 100) {
+    return (
+      <span className={`font-mono text-sm ${colorClass} cursor-help`} title="La conversión supera el 100% debido a compras en lote (múltiples unidades por visita) o ventas de Catálogo (Buy Box)">
+        &gt;100%
+      </span>
+    )
   }
 
   return (
