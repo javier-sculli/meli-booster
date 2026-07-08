@@ -171,11 +171,11 @@ export default function Dashboard() {
     fetchPayments(false, from, to)
   }, [fetchPayments])
 
-  const fetchItems = useCallback(async (period = '30d') => {
+  const fetchItems = useCallback(async (period = '30d', forceRefresh = false) => {
     setItemsLoading(true)
     setItemsError(null)
     try {
-      const res = await fetch(`/api/items?period=${period}`, { cache: 'no-store' })
+      const res = await fetch(`/api/items?period=${period}${forceRefresh ? '&refresh=true' : ''}`, { cache: 'no-store' })
       if (!res.ok) throw new Error('Error al obtener las publicaciones')
       setItemsData(await res.json())
     } catch (err) {
@@ -548,7 +548,7 @@ export default function Dashboard() {
                 </div>
 
                 <button
-                  onClick={() => fetchItems(itemsPeriod)}
+                  onClick={() => fetchItems(itemsPeriod, true)}
                   disabled={itemsLoading}
                   className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors text-gray-300"
                 >
@@ -562,7 +562,7 @@ export default function Dashboard() {
               <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400 flex items-center gap-2">
                 <span>⚠</span>
                 <span>{itemsError}</span>
-                <button onClick={() => fetchItems(itemsPeriod)} className="ml-auto text-xs underline hover:no-underline">Reintentar</button>
+                <button onClick={() => fetchItems(itemsPeriod, true)} className="ml-auto text-xs underline hover:no-underline">Reintentar</button>
               </div>
             )}
 

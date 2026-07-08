@@ -112,16 +112,19 @@ async function getSingleItemVisits(
   accessToken: string,
   itemId: string,
   dateFrom?: string,
-  dateTo?: string
+  dateTo?: string,
+  refresh = false
 ): Promise<number> {
   const cacheKey = dateFrom && dateTo ? `visits:${itemId}:${dateFrom}:${dateTo}` : `visits:${itemId}`
-  try {
-    const cached = await redis.get(cacheKey)
-    if (cached !== null) {
-      return Number(cached)
+  if (!refresh) {
+    try {
+      const cached = await redis.get(cacheKey)
+      if (cached !== null) {
+        return Number(cached)
+      }
+    } catch (err) {
+      console.error('Redis error for item visits:', err)
     }
-  } catch (err) {
-    console.error('Redis error for item visits:', err)
   }
 
   try {
@@ -135,7 +138,7 @@ async function getSingleItemVisits(
     if (res.ok) {
       const data = await res.json()
       const count = dateFrom && dateTo ? (Number(data.total_visits) || 0) : (Number(data[itemId]) || 0)
-      await redis.setex(cacheKey, 7200, String(count)) // Cache for 2 hours
+      await redis.setex(cacheKey, 86400, String(count)) // Cache for 24 hours (1 day)
       return count
     }
   } catch (err) {
@@ -149,7 +152,8 @@ async function getItemVisits(
   accessToken: string,
   ids: string[],
   dateFrom?: string,
-  dateTo?: string
+  dateTo?: string,
+  refresh = false
 ): Promise<Record<string, number>> {
   if (ids.length === 0) return {}
   const visitsMap: Record<string, number> = {}
@@ -158,7 +162,7 @@ async function getItemVisits(
     const chunk = ids.slice(i, i + chunkSize)
     const results = await Promise.all(
       chunk.map(async (id) => {
-        const count = await getSingleItemVisits(accessToken, id, dateFrom, dateTo)
+        const count = await getSingleItemVisits(accessToken, id, dateFrom, dateTo, refresh)
         return { id, count }
       })
     )
@@ -224,22 +228,25 @@ async function getCachedSalesQuantityByItem(
   accessToken: string,
   userId: number,
   dateFrom: string,
-  dateTo: string
+  dateTo: string,
+  refresh = false
 ): Promise<Record<string, number>> {
   const cacheKey = `sales_by_item:${userId}:${dateFrom}:${dateTo}`
-  try {
-    const cached = await redis.get(cacheKey)
-    if (cached !== null) {
-      return JSON.parse(cached)
+  if (!refresh) {
+    try {
+      const cached = await redis.get(cacheKey)
+      if (cached !== null) {
+        return JSON.parse(cached)
+      }
+    } catch (err) {
+      console.error('Redis error reading sales by item:', err)
     }
-  } catch (err) {
-    console.error('Redis error reading sales by item:', err)
   }
 
   const salesMap = await getSalesQuantityByItem(accessToken, userId, dateFrom, dateTo)
 
   try {
-    await redis.setex(cacheKey, 7200, JSON.stringify(salesMap))
+    await redis.setex(cacheKey, 86400, JSON.stringify(salesMap)) // Cache for 24 hours (1 day)
   } catch (err) {
     console.error('Redis error writing sales by item:', err)
   }
@@ -256,6 +263,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const period = searchParams.get('period') || '30d'
+    const refresh = searchParams.get('refresh') === 'true'
 
     const tokenData = await getTokens()
     const userId = tokenData!.user_id
@@ -280,9 +288,9 @@ export async function GET(request: Request) {
 
     const [items, visitsMap, salesMap] = await Promise.all([
       getItemDetails(accessToken, ids),
-      getItemVisits(accessToken, ids, dateFrom, dateTo),
+      getItemVisits(accessToken, ids, dateFrom, dateTo, refresh),
       dateFrom && dateTo
-        ? getCachedSalesQuantityByItem(accessToken, userId, dateFrom, dateTo)
+        ? getCachedSalesQuantityByItem(accessToken, userId, dateFrom, dateTo, refresh)
         : Promise.resolve({} as Record<string, number>),
     ])
 
